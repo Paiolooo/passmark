@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { parseGrade, parseMinGrade, parseWeight } from "@/lib/grades";
-import { inputClass, linkButton } from "./ui";
+import { inputClass, linkButton, secondaryButton } from "./ui";
 
 const QUICK_NAMES = [
   "Participation",
@@ -147,7 +147,7 @@ export function AddAssessmentForm({
           type="submit"
           disabled={pending}
           aria-busy={pending}
-          className="min-h-11 rounded-lg border border-emerald-700 bg-white px-4 font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-70"
+          className={secondaryButton}
         >
           {pending ? "Adding…" : "Add assessment"}
         </button>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { secondaryButton } from "./ui";
 
 export function LogoutButton() {
   const [pending, setPending] = useState(false);
@@ -31,7 +32,7 @@ export function LogoutButton() {
         onClick={logout}
         disabled={pending}
         aria-busy={pending}
-        className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-60"
+        className={secondaryButton}
       >
         {pending ? "Logging out…" : "Log out"}
       </button>

@@ -19,7 +19,14 @@ import type { EditorActions } from "./AssessmentEditor";
 import type { NewPart } from "./SplitForm";
 import { StatusBadge } from "./StatusBadge";
 import { SyllabusImport } from "./SyllabusImport";
-import { linkButton, primaryButton, secondaryButton } from "./ui";
+import {
+  dangerButton,
+  dangerFilledButton,
+  linkButton,
+  primaryButton,
+  secondaryButton,
+  sectionHeading,
+} from "./ui";
 import { usePdfPicker } from "./usePdfPicker";
 import { SaveIndicator, useSaver } from "./useSaver";
 
@@ -191,7 +198,7 @@ export function CourseCard({
   return (
     <li
       data-testid="core-item"
-      className="rounded-2xl border border-gray-200 bg-white shadow-sm"
+      className="rounded-2xl border border-gray-200 bg-white shadow-sm transition-shadow hover:border-gray-300 hover:shadow-md"
     >
       <h3>
         <button
@@ -200,23 +207,46 @@ export function CourseCard({
           aria-expanded={open}
           aria-controls={panelId}
           onClick={() => setOpen((v) => !v)}
-          className="flex w-full flex-col gap-2 rounded-2xl p-4 text-left hover:bg-gray-50 sm:p-5"
+          className="flex w-full items-start gap-3 rounded-2xl p-4 text-left sm:p-5"
         >
-          <span className="flex w-full items-start justify-between gap-3">
-            <span className="wrap-anywhere text-lg font-semibold text-gray-900">{course.name}</span>
-            <span aria-hidden="true" className="mt-1 shrink-0 text-gray-600">
-              {open ? "▲" : "▼"}
+          <span className="min-w-0 flex-1">
+            <span className="wrap-anywhere block text-xl font-semibold leading-snug text-gray-900">
+              {course.name}
+            </span>
+            {!open && (
+              <span className="mt-1.5 block text-base font-semibold leading-snug text-gray-900">
+                {result.headline}
+              </span>
+            )}
+            <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-700 tabular-nums">
+              Target {formatGrade(course.target_grade)}
+              {/* On phones the badge sits here so the name and result keep the full width. */}
+              {!open && (
+                <span className="sm:hidden">
+                  <StatusBadge result={result} />
+                </span>
+              )}
             </span>
           </span>
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-700">
-            <span>Target {formatGrade(course.target_grade)}</span>
-            {!open && <StatusBadge result={result} />}
+          <span className="flex shrink-0 items-center gap-2 pt-1">
+            {!open && (
+              <span className="hidden sm:inline-flex">
+                <StatusBadge result={result} />
+              </span>
+            )}
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 20 20"
+              className={`h-5 w-5 text-gray-600 transition-transform ${open ? "rotate-180" : ""}`}
+              fill="currentColor"
+            >
+              <path d="M5.3 7.3a1 1 0 0 1 1.4 0L10 10.6l3.3-3.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 0 1 0-1.4z" />
+            </svg>
           </span>
-          {!open && <span className="text-sm text-gray-800">{result.headline}</span>}
         </button>
       </h3>
       {!open && canPlan && (
-        <div className="-mt-2 px-4 pb-3 sm:px-5">
+        <div className="-mt-3 px-4 pb-2 sm:px-5">
           <button
             type="button"
             onClick={() => {
@@ -232,7 +262,8 @@ export function CourseCard({
       )}
 
       {open && (
-        <div id={panelId} className="space-y-6 px-4 pb-5 sm:px-5">
+        <div id={panelId} className="space-y-8 px-4 pb-5 sm:px-5">
+          <SaveIndicator status={status} />
           <ResultPanel result={result} />
           {canPlan && (
             <GradePlanner
@@ -246,12 +277,8 @@ export function CourseCard({
               onDismissTip={onDismissPlannerTip}
             />
           )}
-          <SaveIndicator status={status} />
-
-          <TargetPicker target={course.target_grade} onSave={setTarget} />
-
           <section aria-labelledby={`${id}-assessments`} className="space-y-3">
-            <h4 id={`${id}-assessments`} className="font-semibold text-gray-900">
+            <h4 id={`${id}-assessments`} className={sectionHeading}>
               Assessments
             </h4>
             {picker.input}
@@ -345,7 +372,11 @@ export function CourseCard({
             )}
           </section>
 
-          <DeleteCourse name={course.name} onConfirm={deleteCourse} />
+          <TargetPicker target={course.target_grade} onSave={setTarget} />
+
+          <div className="border-t border-gray-100 pt-5">
+            <DeleteCourse name={course.name} onConfirm={deleteCourse} />
+          </div>
         </div>
       )}
     </li>
@@ -380,7 +411,7 @@ function TargetPicker({
 
   return (
     <fieldset>
-      <legend className="font-semibold text-gray-900">Target grade</legend>
+      <legend className={sectionHeading}>Target grade</legend>
       <div className="mt-2 flex flex-wrap items-end gap-2">
         {TARGETS.map((t) => {
           const active = sameNumber(t.value, target);
@@ -436,6 +467,13 @@ function TargetPicker({
   );
 }
 
+const TONE_TEXT: Record<CourseResult["tone"], string> = {
+  good: "text-emerald-800",
+  warn: "text-amber-900",
+  bad: "text-red-800",
+  neutral: "text-gray-900",
+};
+
 function ResultPanel({ result }: { result: CourseResult }) {
   const big =
     result.outcome === "needed"
@@ -446,10 +484,13 @@ function ResultPanel({ result }: { result: CourseResult }) {
 
   return (
     <section aria-label="Result" className="rounded-xl border border-gray-200 bg-gray-50 p-4 sm:p-5">
-      <StatusBadge result={result} />
+      <div className="flex items-center justify-between gap-3">
+        <h4 className={sectionHeading}>Result</h4>
+        <StatusBadge result={result} />
+      </div>
       {big && (
-        <p className="mt-2 flex items-baseline gap-2">
-          <span className="text-5xl font-bold tracking-tight text-gray-900">
+        <p className="mt-3 flex items-baseline gap-2">
+          <span className={`text-5xl font-bold tracking-tight tabular-nums ${TONE_TEXT[result.tone]}`}>
             {formatGrade(big.value)}
           </span>
           <span className="text-sm text-gray-700">{big.label}</span>
@@ -479,7 +520,7 @@ function DeleteCourse({ name, onConfirm }: { name: string; onConfirm: () => Prom
       <button
         type="button"
         onClick={() => setConfirming(true)}
-        className="min-h-11 rounded-lg border border-red-300 bg-white px-4 text-sm font-semibold text-red-800 hover:bg-red-50"
+        className={dangerButton}
       >
         Delete course
       </button>
@@ -500,7 +541,7 @@ function DeleteCourse({ name, onConfirm }: { name: string; onConfirm: () => Prom
             await onConfirm();
             setPending(false);
           }}
-          className="min-h-11 rounded-lg bg-red-700 px-4 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-70"
+          className={dangerFilledButton}
         >
           {pending ? "Deleting…" : "Yes, delete"}
         </button>
@@ -508,7 +549,7 @@ function DeleteCourse({ name, onConfirm }: { name: string; onConfirm: () => Prom
           type="button"
           autoFocus
           onClick={() => setConfirming(false)}
-          className="min-h-11 rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-800"
+          className={secondaryButton}
         >
           Cancel
         </button>

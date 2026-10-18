@@ -34,64 +34,74 @@ export function AssessmentList({
   };
 
   return (
-    <ul className="divide-y divide-gray-100 rounded-xl border border-gray-200">
-      {groups.map(({ assessment: a, parts }) => {
-        const bestOf = effectiveBestOf(a, parts);
-        const partsCheck = partsWeightCheck(a, parts);
-        return (
-          <li key={a.id}>
-            <Row
-              id={rowId(a.id)}
-              assessment={a}
-              parts={parts}
-              open={editingId === a.id}
-              onToggle={() => (editingId === a.id ? close(a.id) : onEdit(a.id))}
-            />
-            {editingId === a.id && (
-              <AssessmentEditor
+    <div className="overflow-hidden rounded-xl border border-gray-200">
+      <div
+        aria-hidden="true"
+        className="flex gap-3 border-b border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700"
+      >
+        <span className="flex-1">Assessment</span>
+        <span className="w-14 text-right">Weight</span>
+        <span className="w-20 text-right">Grade</span>
+      </div>
+      <ul className="divide-y divide-gray-100">
+        {groups.map(({ assessment: a, parts }) => {
+          const bestOf = effectiveBestOf(a, parts);
+          const partsCheck = partsWeightCheck(a, parts);
+          return (
+            <li key={a.id}>
+              <Row
+                id={rowId(a.id)}
                 assessment={a}
                 parts={parts}
-                canSplit={parts.length === 0}
-                actions={actions}
-                onClose={() => close(a.id)}
+                open={editingId === a.id}
+                onToggle={() => (editingId === a.id ? close(a.id) : onEdit(a.id))}
               />
-            )}
-            {parts.length > 0 && (
-              <ul className="mb-2 ml-4 border-l-2 border-gray-200">
-                {parts.map((p) => (
-                  <li key={p.id}>
-                    <Row
-                      id={rowId(p.id)}
-                      assessment={p}
-                      parts={[]}
-                      hideWeight={bestOf !== null}
-                      open={editingId === p.id}
-                      onToggle={() => (editingId === p.id ? close(p.id) : onEdit(p.id))}
-                    />
-                    {editingId === p.id && (
-                      <AssessmentEditor
+              {editingId === a.id && (
+                <AssessmentEditor
+                  assessment={a}
+                  parts={parts}
+                  canSplit={parts.length === 0}
+                  actions={actions}
+                  onClose={() => close(a.id)}
+                />
+              )}
+              {parts.length > 0 && (
+                <ul className="mb-2 ml-4 border-l-2 border-gray-200">
+                  {parts.map((p) => (
+                    <li key={p.id}>
+                      <Row
+                        id={rowId(p.id)}
                         assessment={p}
                         parts={[]}
-                        canSplit={false}
-                        actions={actions}
-                        onClose={() => close(p.id)}
+                        hideWeight={bestOf !== null}
+                        open={editingId === p.id}
+                        onToggle={() => (editingId === p.id ? close(p.id) : onEdit(p.id))}
                       />
-                    )}
-                  </li>
-                ))}
-                {bestOf === null && !partsCheck.ok && (
-                  <li className="px-3 py-2 text-sm text-amber-900">
-                    <span aria-hidden="true">⚠ </span>
-                    Parts add up to {formatWeight(partsCheck.total)}%, but {a.name} is{" "}
-                    {formatWeight(a.weight)}%.
-                  </li>
-                )}
-              </ul>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+                      {editingId === p.id && (
+                        <AssessmentEditor
+                          assessment={p}
+                          parts={[]}
+                          canSplit={false}
+                          actions={actions}
+                          onClose={() => close(p.id)}
+                        />
+                      )}
+                    </li>
+                  ))}
+                  {bestOf === null && !partsCheck.ok && (
+                    <li className="px-3 py-2 text-sm text-amber-900">
+                      <span aria-hidden="true">⚠ </span>
+                      Parts add up to {formatWeight(partsCheck.total)}%, but {a.name} is{" "}
+                      {formatWeight(a.weight)}%.
+                    </li>
+                  )}
+                </ul>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
@@ -151,13 +161,15 @@ function Row({
           <span className="block text-xs text-gray-600">{notes.join(" · ")}</span>
         )}
       </span>
-      {!hideWeight && (
-        <span className="shrink-0 text-sm text-gray-700">
-          <span className="sr-only">weight </span>
-          {formatWeight(a.weight)}%
-        </span>
-      )}
-      <span className="w-20 shrink-0 text-right">
+      <span className="w-14 shrink-0 text-right text-sm text-gray-700 tabular-nums">
+        {!hideWeight && (
+          <>
+            <span className="sr-only">weight </span>
+            {formatWeight(a.weight)}%
+          </>
+        )}
+      </span>
+      <span className="w-20 shrink-0 text-right tabular-nums">
         <span className="sr-only">{isParent ? "calculated grade " : "grade "}</span>
         {gradeText}
       </span>

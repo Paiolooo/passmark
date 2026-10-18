@@ -10,7 +10,7 @@ import {
   parseWeight,
 } from "@/lib/grades";
 import { SplitForm, type NewPart } from "./SplitForm";
-import { dangerButton, inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "./ui";
+import { dangerButton, dangerFilledButton, inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "./ui";
 
 export type EditorActions = {
   update: (id: string, patch: Partial<Assessment>) => Promise<boolean>;
@@ -224,7 +224,7 @@ export function AssessmentEditor({
               type="button"
               disabled={pending}
               onClick={remove}
-              className="min-h-11 rounded-lg bg-red-700 px-4 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-70"
+              className={dangerFilledButton}
             >
               {pending ? "Deleting…" : "Yes, delete"}
             </button>

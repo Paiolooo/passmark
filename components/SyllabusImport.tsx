@@ -6,7 +6,7 @@ import { formatGrade, formatWeight, parseMinGrade, parseWeight, splitEqually, we
 import { checkPdfFile, readPdfTextItems } from "@/lib/pdf-text";
 import { type Syllabus, type SyllabusRow, countedPartName, parseSyllabus } from "@/lib/syllabus";
 import { type ConfirmedRow, saveSyllabusImport } from "./syllabus-save";
-import { inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "./ui";
+import { dangerButton, inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "./ui";
 
 type Suggestion =
   | { kind: "split"; parts: { name: string; weight: number }[] }
@@ -328,7 +328,7 @@ export function SyllabusImport({
                     type="button"
                     onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}
                     aria-label={`Remove ${r.name || `row ${i + 1}`}`}
-                    className="ml-auto min-h-11 rounded-lg border border-gray-300 px-3 text-sm font-medium text-red-800 hover:bg-red-50"
+                    className={`${dangerButton} ml-auto`}
                   >
                     Remove
                   </button>

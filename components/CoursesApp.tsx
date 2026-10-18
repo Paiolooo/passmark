@@ -6,7 +6,7 @@ import { COURSE_COLUMNS, type Course, toCourse } from "@/lib/courses";
 import { computeCourse, summarize } from "@/lib/grades";
 import { CourseCard } from "./CourseCard";
 import { SyllabusImport } from "./SyllabusImport";
-import { secondaryButton } from "./ui";
+import { dangerButton, primaryButton, secondaryButton } from "./ui";
 import { usePdfPicker } from "./usePdfPicker";
 import { friendlyDbError } from "./useSaver";
 
@@ -82,66 +82,71 @@ export function CoursesApp({
   };
 
   return (
-    <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6">
-      <h1 className="text-3xl font-bold tracking-tight text-gray-900">My courses</h1>
+    <main className="mx-auto w-full max-w-[720px] flex-1 px-4 py-8 sm:px-6">
+      <header>
+        <h1 className="text-3xl font-bold tracking-tight text-gray-900">My courses</h1>
+        {courses.length > 0 && <SummaryPills summary={summary} />}
+      </header>
 
-      <form onSubmit={addCourse} noValidate className="mt-6">
-        <label htmlFor="course-name" className="block text-sm font-semibold text-gray-900">
-          Course name
-        </label>
-        <div className="mt-1 flex flex-col gap-2 sm:flex-row">
-          <input
-            ref={inputRef}
-            id="course-name"
-            data-testid="core-input"
-            type="text"
-            name="course-name"
-            autoComplete="off"
-            placeholder="e.g. Corporate Finance"
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              if (addError) setAddError(null);
-            }}
-            aria-invalid={addError ? true : undefined}
-            aria-describedby="add-course-error"
-            className="min-h-11 w-full flex-1 rounded-lg border border-gray-400 px-3 text-base text-gray-900"
-          />
+      <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+        <form onSubmit={addCourse} noValidate>
+          <label htmlFor="course-name" className="block text-sm font-semibold text-gray-900">
+            Course name
+          </label>
+          <div className="mt-1 flex flex-col gap-2 sm:flex-row">
+            <input
+              ref={inputRef}
+              id="course-name"
+              data-testid="core-input"
+              type="text"
+              name="course-name"
+              autoComplete="off"
+              placeholder="e.g. Corporate Finance"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (addError) setAddError(null);
+              }}
+              aria-invalid={addError ? true : undefined}
+              aria-describedby="add-course-error"
+              className="min-h-11 w-full flex-1 rounded-lg border border-gray-400 bg-white px-3 text-base text-gray-900"
+            />
+            <button
+              type="submit"
+              data-testid="core-submit"
+              disabled={adding}
+              aria-busy={adding}
+              className={`${primaryButton} shrink-0`}
+            >
+              {adding ? "Adding…" : "Add course"}
+            </button>
+          </div>
+          <div id="add-course-error" aria-live="assertive">
+            {addError && (
+              <p role="alert" className="mt-2 text-sm text-red-700">
+                {addError}
+              </p>
+            )}
+          </div>
+          <p aria-live="polite" className="sr-only">
+            {announcement}
+          </p>
+        </form>
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="text-sm text-gray-700">Have the syllabus?</span>
           <button
-            type="submit"
-            data-testid="core-submit"
-            disabled={adding}
-            aria-busy={adding}
-            className="min-h-11 shrink-0 rounded-lg bg-emerald-700 px-5 font-semibold text-white hover:bg-emerald-800 disabled:opacity-70"
+            type="button"
+            onClick={() => {
+              setImportWarning(null);
+              picker.open();
+            }}
+            className={secondaryButton}
           >
-            {adding ? "Adding…" : "Add course"}
+            Import syllabus PDF
           </button>
+          {picker.input}
         </div>
-        <div id="add-course-error" aria-live="assertive">
-          {addError && (
-            <p role="alert" className="mt-2 text-sm text-red-700">
-              {addError}
-            </p>
-          )}
-        </div>
-        <p aria-live="polite" className="sr-only">
-          {announcement}
-        </p>
-      </form>
-
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="text-sm text-gray-700">Have the syllabus?</span>
-        <button
-          type="button"
-          onClick={() => {
-            setImportWarning(null);
-            picker.open();
-          }}
-          className={secondaryButton}
-        >
-          Import syllabus PDF
-        </button>
-        {picker.input}
       </div>
 
       {picker.file && (
@@ -176,7 +181,7 @@ export function CoursesApp({
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="mt-3 min-h-11 rounded-lg border border-red-300 bg-white px-4 text-sm font-semibold"
+            className={`${dangerButton} mt-3`}
           >
             Try again
           </button>
@@ -187,7 +192,6 @@ export function CoursesApp({
         <h2 id="courses-title" className="sr-only">
           Your courses
         </h2>
-        {courses.length > 0 && <p className="mb-3 text-sm text-gray-700">{summary}</p>}
         {courses.length === 0 && !loadError ? (
           <p className="rounded-2xl border border-dashed border-gray-300 p-6 text-center text-gray-700">
             Add your first course to see what you need to pass.
@@ -209,5 +213,27 @@ export function CoursesApp({
         )}
       </section>
     </main>
+  );
+}
+
+const PILL_TONES: [RegExp, string][] = [
+  [/at risk/, "border-amber-300 bg-amber-50 text-amber-900"],
+  [/not reachable|below minimum|not passed/, "border-red-300 bg-red-50 text-red-900"],
+];
+
+/** "4 courses · 1 at risk" as small pills: text always says what the colour means. */
+function SummaryPills({ summary }: { summary: string }) {
+  return (
+    <ul aria-label="Summary" className="mt-3 flex flex-wrap gap-2">
+      {summary.split(" · ").map((part) => {
+        const tone =
+          PILL_TONES.find(([re]) => re.test(part))?.[1] ?? "border-gray-300 bg-gray-50 text-gray-800";
+        return (
+          <li key={part} className={`rounded-full border px-3 py-1 text-sm font-medium tabular-nums ${tone}`}>
+            {part}
+          </li>
+        );
+      })}
+    </ul>
   );
 }

@@ -9,6 +9,7 @@ import {
   friendlyAuthError,
   validateCredentials,
 } from "@/lib/auth-errors";
+import { inputClass, primaryButton } from "./ui";
 
 const COPY = {
   signup: {
@@ -105,7 +106,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
             onChange={(e) => setEmail(e.target.value)}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? errorId : undefined}
-            className="mt-1 block min-h-11 w-full rounded-lg border border-gray-400 px-3 text-base text-gray-900"
+            className={inputClass}
           />
         </div>
 
@@ -128,7 +129,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
               [mode === "signup" ? hintId : "", error ? errorId : ""].filter(Boolean).join(" ") ||
               undefined
             }
-            className="mt-1 block min-h-11 w-full rounded-lg border border-gray-400 px-3 text-base text-gray-900"
+            className={inputClass}
           />
           {mode === "signup" && (
             <p id={hintId} className="mt-1 text-sm text-gray-600">
@@ -157,7 +158,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
           data-testid={`${mode}-submit`}
           disabled={pending}
           aria-busy={pending}
-          className="min-h-11 w-full rounded-lg bg-emerald-700 px-4 font-semibold text-white hover:bg-emerald-800 disabled:opacity-70"
+          className={`${primaryButton} w-full`}
         >
           {pending ? copy.pending : copy.submit}
         </button>

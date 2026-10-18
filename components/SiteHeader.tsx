@@ -8,7 +8,7 @@ export async function SiteHeader() {
 
   return (
     <header className="border-b border-gray-200 bg-white">
-      <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-2 sm:px-6">
+      <div className="mx-auto flex max-w-[1100px] items-center justify-between gap-3 px-4 py-2 sm:px-6">
         <Link
           href="/"
           className="flex min-h-11 items-center text-xl font-bold tracking-tight text-gray-900"

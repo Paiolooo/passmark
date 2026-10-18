@@ -106,7 +106,7 @@ export const GradePlanner = forwardRef<HTMLHeadingElement, Props>(function Grade
   }
 
   return (
-    <section aria-labelledby={`${idPrefix}-plan`} className="rounded-xl border border-gray-200 p-4 sm:p-5">
+    <section aria-labelledby={`${idPrefix}-plan`} className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
       <h4
         ref={headingRef}
         tabIndex={-1}
@@ -146,7 +146,7 @@ export const GradePlanner = forwardRef<HTMLHeadingElement, Props>(function Grade
       >
         <p className="text-lg font-semibold">
           Projected final grade:{" "}
-          <span className="text-3xl font-bold tracking-tight">{formatGrade(status.projected)}</span>{" "}
+          <span className="text-3xl font-bold tracking-tight tabular-nums">{formatGrade(status.projected)}</span>{" "}
           {status.reachesTarget ? (
             <span className="whitespace-nowrap">✓ reaches your target</span>
           ) : (
@@ -232,7 +232,7 @@ function GradedRow({ item }: { item: Extract<PlanListItem, { kind: "graded" }> }
           </div>
           <div className="w-20 shrink-0 px-1 py-1 text-center text-gray-900">
             <span className="block text-[11px] font-semibold leading-none">Your grade</span>
-            <span className="block text-2xl font-bold leading-tight">{formatGrade(item.grade)}</span>
+            <span className="block text-2xl font-bold leading-tight tabular-nums">{formatGrade(item.grade)}</span>
           </div>
         </div>
       </div>
@@ -316,7 +316,7 @@ function PlanSlider({
                 type="button"
                 onClick={onTogglePin}
                 aria-pressed={pinnedFlag}
-                className={`inline-flex min-h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-semibold ${
+                className={`inline-flex min-h-11 items-center gap-1 rounded-full border px-3 text-xs font-semibold ${
                   pinnedFlag
                     ? "border-gray-700 bg-gray-800 text-white hover:bg-gray-700"
                     : "border-gray-300 bg-white text-gray-800 hover:bg-gray-50"
@@ -446,7 +446,7 @@ function PlanValueBox({
         onKeyDown={(e) => {
           if (e.key === "Enter") e.currentTarget.blur();
         }}
-        className="block w-full bg-transparent text-center text-2xl font-bold leading-tight outline-offset-2"
+        className="block h-11 w-full bg-transparent text-center text-2xl font-bold leading-tight tabular-nums outline-offset-2"
       />
     </div>
   );
