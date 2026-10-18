@@ -29,7 +29,7 @@ export const PRIVACY_NOTE =
 
 /** The GPA page: overall GPA, this semester, credits, a chart, a target and your history. */
 export function GpaApp({
-  courses,
+  courses: initialCourses,
   coursesError,
   historyAvailable,
   initialSemesters,
@@ -42,6 +42,7 @@ export function GpaApp({
   initialPastCourses: PastCourseRow[];
 }) {
   const id = useId();
+  const [courses, setCourses] = useState(initialCourses);
   const [semesters, setSemesters] = useState(initialSemesters);
   const [pastCourses, setPastCourses] = useState(initialPastCourses);
   const [adding, setAdding] = useState(false);
@@ -214,6 +215,8 @@ export function GpaApp({
               <TranscriptImport
                 file={picker.file as File}
                 existingCount={pastCourses.length}
+                existingCourseNames={courses.map((c) => c.name)}
+                onCoursesAdded={(added) => setCourses((prev) => [...added, ...prev])}
                 onSaved={(saved, replaced) => {
                   picker.clear();
                   setPastCourses((prev) => (replaced ? saved : [...prev, ...saved]));

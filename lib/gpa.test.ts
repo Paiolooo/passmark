@@ -302,6 +302,14 @@ describe("history: semester order and current semester", () => {
     ).toEqual(["Year 1 · Semester 2", "2022/2023 2º semestre", "2023-24 · Semester 1", "2023-24 · Semester 2", "Exchange"]);
   });
 
+  it("reads transcript labels like 24/25 · 1st semester", () => {
+    expect(orderSemesters(["25/26 · 1st semester", "24/25 · 2nd semester", "24/25 · 1st semester"])).toEqual([
+      "24/25 · 1st semester",
+      "24/25 · 2nd semester",
+      "25/26 · 1st semester",
+    ]);
+  });
+
   it("credits completed includes this semester's passed courses from Courses", () => {
     const now = [course("Passed", 6, 7), course("Failed", 6, 3), course("Open", 6, null)];
     expect(creditsCompleted([], now)).toBe(6);

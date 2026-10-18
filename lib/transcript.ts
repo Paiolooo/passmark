@@ -1,34 +1,43 @@
-// Reads an IE University transcript (expediente académico) from the text items of its PDF.
+// Reads an IE University transcript ("Expediente Académico") from the text items of its PDF.
 // Pure functions only, like lib/syllabus.ts: runs in the browser and in Node tests.
 // The PDF never leaves the device; only rows the user confirms are saved.
 //
-// Layout (per year, one table): a header row "ECTS | Tipo | Curso Acad. | Ord. | Extr. | …",
-// then courses: "(100001) SPANISH NAME/ENGLISH NAME (Cursada en Inglés/Taken in English) -
-// 1st semester" wrapped over a few lines at the left, with the ECTS, academic year ("24/25"),
-// the ordinary-call grade ("9.7", "APT", "--") and the extraordinary-call grade in columns.
-// Only course rows are read: header blocks with personal data are never parsed or kept.
+// Layout: every page repeats a header (university, date, address, file number) that is never
+// read. Each year is a table that starts with "1st Bachelor in …" and the columns
+// ECTS · Tipo · Curso Acad. · Ord. · Extr. · Conv. · Matr. A course starts with "(code)" and
+// "SPANISH NAME/ENGLISH NAME (Cursada en …/Taken in …) - 1st semester", wrapped over 2–4 lines;
+// its values sit in those columns, read by position (pdf.js x), not by text order. After the
+// tables, a summary gives "ECTS superados" and the official GPA (comma decimal, "7,25" style).
+// Only course rows and those two numbers are read: personal details are never parsed or kept.
 import type { TextItem } from "./syllabus";
 
 export type TranscriptRow = {
+  /** English name, title case. */
   name: string;
-  /** "2024-25 · Semester 1" (academic year and semester as printed). */
+  /** Academic year + semester as on the transcript: "24/25 · 1st semester". */
   semester: string;
   credits: number;
-  /** Numeric grade 0–10, or null for results like "Pass (Apto)" or "Recognized". */
+  /** Numeric grade 0–10 (the Extr. grade when there was a retake), or null. */
   grade: number | null;
-  /** The result in words when there is no numeric grade. */
+  /** The result in words when there is no numeric grade ("Pass (Apto)", "Recognized"…). */
   result: string | null;
-  /** Supplementary training (not part of the official degree): doesn't count by default. */
-  supplementary: boolean;
 };
+
+/** A course in progress ("--" in Ord. and Extr., "*" in Matr.): it belongs in Courses. */
+export type CurrentCourse = { name: string; semester: string; credits: number };
 
 export type Transcript = {
+  /** Finished degree courses: graded, or with a result without a grade. */
   rows: TranscriptRow[];
-  /** The average printed on the transcript, if found (to compare with ours). */
-  statedAverage: number | null;
+  /** Courses in progress. */
+  current: CurrentCourse[];
+  /** The official GPA printed on the transcript, if found. */
+  officialGpa: number | null;
+  /** "Total ECTS oficiales … ECTS superados", if found. */
+  officialEcts: number | null;
 };
 
-/** Result codes from the transcript's legend, in plain words. */
+/** Codes from the transcript's legend, in plain words. Qualifiers like N or S sit under a grade. */
 const RESULT_CODES: Record<string, string> = {
   AP: "Pass (Aprobado)",
   APR: "Pass by recognition",
@@ -36,26 +45,33 @@ const RESULT_CODES: Record<string, string> = {
   APT: "Pass (Apto)",
   DIS: "Exempt (Dispensa)",
   NAP: "Fail (No apto)",
+  N: "Notable",
+  NPR: "Notable by recognition",
   REC: "Recognized",
   SC: "Not graded",
-  NP: "Not presented",
-  SUS: "Fail (Suspenso)",
-  SUP: "Fail (Suspenso)",
-  MHR: "Honors by recognition",
-  NPR: "Notable by recognition",
+  S: "Outstanding (Sobresaliente)",
   SPR: "Outstanding by recognition",
+  SMH: "Outstanding with honors",
+  MHR: "Honors by recognition",
+  SUP: "Fail (Suspenso)",
+  SUS: "Fail (Suspenso)",
+  NP: "Not presented",
+  C: "Convalidated",
+  R: "Recognized",
 };
 
-type Part = { x: number; s: string };
+/** `c`: the centre of the text (x + width / 2); values line up with their column by centre. */
+type Part = { x: number; c: number; s: string };
 type Line = { page: number; y: number; parts: Part[] };
-type Columns = { ects: number; year: number | null; ord: number; extr: number | null; nameEnd: number };
+type Column = "credits" | "type" | "year" | "ord" | "extr" | "conv" | "matr";
+type Columns = { at: [Column, number][]; nameEnd: number; supplementary: boolean };
 
 const GRADE = /^\d{1,2}(?:[.,]\d{1,2})?$/;
-const CODE = /^[A-Z]{1,4}$/;
+const CODE = /^\(?([A-Z]{1,4})\)?$/;
 const ACADEMIC_YEAR = /^(\d{2})\/(\d{2})$/;
-const COURSE_START = /^\(\d{3,}\)\s*/;
+const COURSE_START = /^\(\d{5,6}\)\s*/;
 const TABLE_END = /tipo de asignatura|total ects|study abroad|expte\b|notas contabilizadas|ects superados/i;
-const SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "by", "for", "in", "of", "on", "or", "the", "to", "with", "y", "de", "la"]);
+const SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "by", "for", "in", "of", "on", "or", "the", "to", "with"]);
 const KEEP_UPPER = new Set(["IE", "HR", "IT", "AI", "ESG", "CSR", "BBA", "II", "III", "IV", "UK", "US", "EU", "R&D", "M&A", "TFG"]);
 
 const toNumber = (s: string) => Number(s.replace(",", "."));
@@ -66,107 +82,137 @@ function toLines(items: TextItem[]): Line[] {
   for (const it of items) {
     let line = lines.find((l) => l.page === it.page && Math.abs(l.y - it.y) <= 2);
     if (!line) lines.push((line = { page: it.page, y: it.y, parts: [] }));
-    line.parts.push({ x: it.x, s: it.s.trim() });
+    line.parts.push({ x: it.x, c: it.x + it.w / 2, s: it.s.trim() });
   }
   for (const l of lines) l.parts.sort((a, b) => a.x - b.x);
   return lines.sort((a, b) => a.page - b.page || b.y - a.y);
 }
 
-/** A table header row: "ECTS … Ord. … Extr." gives the column positions. */
+/** A table header row ("… ECTS · Tipo · Curso · Ord. · Extr. · Conv. · Matr."): column positions. */
 function readHeader(line: Line): Columns | null {
-  const at = (re: RegExp) => line.parts.find((p) => re.test(p.s))?.x ?? null;
-  const ects = at(/^ECTS$/i);
-  const ord = at(/^Ord\.?$/i);
-  if (ects === null || ord === null) return null;
-  return { ects, year: at(/^Curso$/i), ord, extr: at(/^Extr\.?$/i), nameEnd: ects - 8 };
+  const find = (re: RegExp) => line.parts.find((p) => re.test(p.s))?.c ?? null;
+  const ectsStart = line.parts.find((p) => /^ECTS$/i.test(p.s))?.x ?? null;
+  const ects = find(/^ECTS$/i);
+  const ord = find(/^Ord\.?$/i);
+  if (ects === null || ectsStart === null || ord === null) return null;
+  const at: [Column, number | null][] = [
+    ["credits", ects],
+    ["type", find(/^Tipo$/i)],
+    ["year", find(/^Curso$/i)],
+    ["ord", ord],
+    ["extr", find(/^Extr\.?$/i)],
+    ["conv", find(/^(Conv|Recon)\.?$/i)],
+    ["matr", find(/^Matr\.?$/i)],
+  ];
+  return {
+    at: at.filter((c): c is [Column, number] => c[1] !== null),
+    nameEnd: ectsStart - 8,
+    // "FORMACIÓN COMPLEMENTARIA / Actividades Formativas": not part of the degree GPA.
+    supplementary: /formativ|training|complementar|supplementary/i.test(line.parts[0]?.s ?? ""),
+  };
 }
 
-/** "CONTABILIDAD/ACCOUNTING BASICS" → "Accounting Basics". */
+/** "(100001) CONTABILIDAD/ACCOUNTING BASICS (Cursada en …) - 1st semester" → "Accounting Basics". */
 export function englishName(raw: string): string {
   const name = raw
     .replace(COURSE_START, "")
-    .replace(/\(\s*Cursada en[^)]*\)/gi, "")
+    .replace(/\(\s*Cursada.*$/i, "") // the English name ends where "(Cursada en …" starts
     .replace(/\s*-\s*(1st|2nd|first|second|annual|anual)\s*(semester|semestre)?\s*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
   const halves = name.split("/");
-  // Spanish/English: take the English half (the later half when a name itself has a slash).
+  // SPANISH/ENGLISH: the English half (the later half if a name itself contains a slash).
   const english = halves.length > 1 ? halves.slice(Math.ceil(halves.length / 2)).join("/").trim() : name;
-  const words = (english || name).split(" ");
-  return words
+  return (english || name)
+    .split(" ")
     .map((w, i) => {
-      if (KEEP_UPPER.has(w.replace(/[^A-Z&]/g, ""))) return w;
-      const lower = w.toLowerCase();
-      if (i > 0 && SMALL_WORDS.has(lower)) return lower;
-      return lower.replace(/(^|[-(&])(\p{L})/gu, (_, a: string, b: string) => a + b.toUpperCase());
+      if (i > 0 && SMALL_WORDS.has(w.toLowerCase())) return w.toLowerCase();
+      // Each part of a hyphenated word on its own, so "IE-CHALLENGE" → "IE-Challenge".
+      return w
+        .split("-")
+        .map((part) =>
+          KEEP_UPPER.has(part.replace(/[^A-Z&]/g, ""))
+            ? part
+            : part.toLowerCase().replace(/(^|[(&])(\p{L})/gu, (_, a: string, b: string) => a + b.toUpperCase()),
+        )
+        .join("-");
     })
     .join(" ");
 }
 
-/** "24/25" + "1st" → "2024-25 · Semester 1". */
+/** "24/25" + "… - 1st semester" → "24/25 · 1st semester". */
 function semesterLabel(year: string | null, text: string): string {
-  const sem = text.match(/\b(1st|2nd|first|second)\s+semester\b/i)?.[1].toLowerCase();
-  const n = sem === "1st" || sem === "first" ? 1 : sem === "2nd" || sem === "second" ? 2 : null;
-  const m = year?.match(ACADEMIC_YEAR);
-  const academic = m ? `20${m[1]}-${m[2]}` : null;
-  if (academic && n) return `${academic} · Semester ${n}`;
-  if (academic) return `${academic} · Annual`;
-  return n ? `Semester ${n}` : "Other";
+  const sem = text.match(/\b(1st|2nd)\s+semester\b/i)?.[1].toLowerCase();
+  const y = year && ACADEMIC_YEAR.test(year) ? year : null;
+  if (y && sem) return `${y} · ${sem} semester`;
+  if (y) return `${y} · Annual`;
+  return sem ? `${sem} semester` : "Other";
 }
 
-/** The result in one column: a grade, a code in words, or nothing ("--", qualifiers like "(S)"). */
+/** One grade column: a numeric grade, a result code in words, or nothing ("--"). */
 function readResult(tokens: string[]): { grade: number | null; result: string | null } | null {
   const grade = tokens.find((t) => GRADE.test(t));
   if (grade !== undefined) {
     const n = toNumber(grade);
     if (n >= 0 && n <= 10) return { grade: n, result: null };
   }
-  const code = tokens.find((t) => CODE.test(t));
-  if (code) return { grade: null, result: RESULT_CODES[code] ?? code };
+  // Prefer a code on its own ("APT") over a bracketed label under it ("(APT)", "(C)", "(R)").
+  const codes = tokens.map((t) => ({ t, m: t.match(CODE) })).filter((c) => c.m);
+  const code = codes.find((c) => !c.t.startsWith("(")) ?? codes[0];
+  if (code?.m) return { grade: null, result: RESULT_CODES[code.m[1]] ?? code.m[1] };
   // A grade only in brackets, e.g. "(0.0)": shown, never counted.
   const bracketed = tokens.find((t) => /^\(\d/.test(t));
   if (bracketed) return { grade: null, result: `No grade ${bracketed}` };
   return null;
 }
 
-type Block = { name: string[]; columns: Columns; credits: string[]; year: string[]; ord: string[]; extr: string[]; supplementary: boolean };
+type Block = { name: string[] } & Record<Column, string[]>;
 
-function finish(block: Block): TranscriptRow | null {
+type Parsed = { kind: "row"; row: TranscriptRow } | { kind: "current"; course: CurrentCourse } | null;
+
+function finish(block: Block, columns: Columns): Parsed {
+  if (columns.supplementary || block.type.includes("FC")) return null; // supplementary training
   const credits = block.credits.map(toNumber).find((n) => Number.isFinite(n));
-  if (credits === undefined || credits <= 0) return null; // 0-ECTS activities don't matter for a GPA
-  // The extraordinary call is the later attempt in that year: it wins when it has a result.
-  const result = readResult(block.extr) ?? readResult(block.ord);
-  if (!result) return null; // "--" everywhere: still in progress, it belongs in Courses
+  if (credits === undefined || credits <= 0) return null;
   const text = block.name.join(" ");
-  return {
-    name: englishName(text),
-    semester: semesterLabel(block.year.find((t) => ACADEMIC_YEAR.test(t)) ?? null, text),
-    credits,
-    grade: result.grade,
-    result: result.result,
-    supplementary: block.supplementary,
-  };
+  const name = englishName(text);
+  const semester = semesterLabel(block.year.find((t) => ACADEMIC_YEAR.test(t)) ?? null, text);
+
+  // The extraordinary call is the retake: it wins when it has a numeric grade.
+  const extr = readResult(block.extr);
+  const ord = readResult(block.ord);
+  // "(C)" convalidated or "(R)" recognized in the Conv. column: a result without a grade.
+  const conv = readResult(block.conv);
+  const convalidated = conv?.result ? { grade: null, result: conv.result } : null;
+  const result = extr && extr.grade !== null ? extr : (ord ?? extr ?? convalidated);
+  if (!result) {
+    // "--" in Ord. and Extr.: in progress when marked "*" in Matr.
+    return block.matr.includes("*") ? { kind: "current", course: { name, semester, credits } } : null;
+  }
+  if (result.grade === null && convalidated) result.result = convalidated.result;
+  return { kind: "row", row: { name, semester, credits, grade: result.grade, result: result.result } };
 }
 
 export function parseTranscript(items: TextItem[]): Transcript {
   const lines = toLines(items);
   const rows: TranscriptRow[] = [];
+  const current: CurrentCourse[] = [];
   let columns: Columns | null = null;
-  let supplementary = false;
   let block: Block | null = null;
   let page = 0;
 
   const close = () => {
-    if (block) {
-      const row = finish(block);
-      if (row) rows.push(row);
+    if (block && columns) {
+      const parsed = finish(block, columns);
+      if (parsed?.kind === "row") rows.push(parsed.row);
+      if (parsed?.kind === "current") current.push(parsed.course);
     }
     block = null;
   };
 
   for (const line of lines) {
     if (line.page !== page) {
-      // A new page: tables restart under their own header.
+      // A new page: its repeated header is skipped until a table header appears.
       close();
       columns = null;
       page = line.page;
@@ -175,12 +221,10 @@ export function parseTranscript(items: TextItem[]): Transcript {
     if (header) {
       close();
       columns = header;
-      supplementary = /formativ|training|complementar|supplementary/i.test(line.parts[0]?.s ?? "");
       continue;
     }
     if (!columns) continue;
-    const text = line.parts.map((p) => p.s).join(" ");
-    if (TABLE_END.test(text)) {
+    if (TABLE_END.test(line.parts.map((p) => p.s).join(" "))) {
       close();
       columns = null;
       continue;
@@ -190,43 +234,60 @@ export function parseTranscript(items: TextItem[]): Transcript {
     const left = line.parts.filter((p) => p.x < cols.nameEnd);
     if (left.length && COURSE_START.test(left[0].s)) {
       close();
-      block = { name: [], columns: cols, credits: [], year: [], ord: [], extr: [], supplementary };
+      block = { name: [], credits: [], type: [], year: [], ord: [], extr: [], conv: [], matr: [] };
     }
-    const current = block as Block | null;
-    if (!current) continue;
-    current.name.push(...left.map((p) => p.s));
+    const open = block as Block | null;
+    if (!open) continue;
+    open.name.push(...left.map((p) => p.s));
     for (const p of line.parts.filter((q) => q.x >= cols.nameEnd)) {
       // Each value belongs to the nearest column header.
-      const candidates: [keyof Pick<Block, "credits" | "year" | "ord" | "extr">, number | null][] = [
-        ["credits", cols.ects],
-        ["year", cols.year],
-        ["ord", cols.ord],
-        ["extr", cols.extr],
-      ];
-      const [key] = candidates
-        .filter((c): c is [typeof c[0], number] => c[1] !== null)
-        .sort((a, b) => Math.abs(a[1] - p.x) - Math.abs(b[1] - p.x))[0];
-      current[key].push(p.s);
+      const [column] = [...cols.at].sort((a, b) => Math.abs(a[1] - p.c) - Math.abs(b[1] - p.c))[0];
+      open[column].push(p.s);
     }
   }
   close();
 
-  return { rows, statedAverage: statedAverage(lines) };
+  return { rows, current, officialGpa: officialGpa(lines), officialEcts: officialEcts(lines) };
 }
 
-/** The number printed under "GPA" (e.g. "7,25"), or null. */
-function statedAverage(lines: Line[]): number | null {
+/** The number printed under a label within a few lines (same page, same column). */
+function valueBelow(lines: Line[], label: RegExp, maxDistance = 50): number | null {
   for (const [i, line] of lines.entries()) {
-    const label = line.parts.find((p) => /^GPA$/i.test(p.s));
-    if (!label) continue;
+    const at = line.parts.find((p) => label.test(p.s));
+    if (!at) continue;
     for (const below of lines.slice(i + 1, i + 4)) {
-      if (below.page !== line.page || line.y - below.y > 50) break;
-      const value = below.parts.find((p) => Math.abs(p.x - label.x) <= 30 && GRADE.test(p.s));
-      if (value) {
-        const n = toNumber(value.s);
-        return n >= 0 && n <= 10 ? n : null;
-      }
+      if (below.page !== line.page || line.y - below.y > maxDistance) break;
+      const value = below.parts.find((p) => Math.abs(p.c - at.c) <= 30 && GRADE.test(p.s));
+      if (value) return toNumber(value.s);
     }
   }
   return null;
+}
+
+/** The official GPA, printed under "GPA" after the ECTS summary. */
+function officialGpa(lines: Line[]): number | null {
+  const n = valueBelow(lines, /^GPA$/i);
+  return n !== null && n >= 0 && n <= 10 ? n : null;
+}
+
+/** ECTS passed: the "ECTS superados" column on the "Total ECTS oficiales" row. */
+function officialEcts(lines: Line[]): number | null {
+  const header = lines.find((l) => l.parts.some((p) => /^ECTS superados$/i.test(p.s)));
+  const column = header?.parts.find((p) => /^ECTS superados$/i.test(p.s));
+  const total = lines.find((l) => l.page === header?.page && l.parts.some((p) => /^Total ECTS oficiales$/i.test(p.s)));
+  if (!column || !total) return null;
+  const value = total.parts
+    .filter((p) => /^\d+(?:[.,]\d+)?$/.test(p.s))
+    .sort((a, b) => Math.abs(a.c - column.c) - Math.abs(b.c - column.c))[0];
+  return value ? toNumber(value.s) : null;
+}
+
+/** The credit-weighted GPA of graded rows, and whether it matches the official GPA. */
+export function transcriptGpa(rows: Pick<TranscriptRow, "credits" | "grade">[], official: number | null) {
+  const graded = rows.filter((r) => r.grade !== null);
+  const credits = graded.reduce((s, r) => s + r.credits, 0);
+  const gpa = credits > 0 ? graded.reduce((s, r) => s + r.credits * (r.grade as number), 0) / credits : null;
+  // The official GPA has two decimals: ours matches when it is within that precision.
+  const matches = gpa !== null && official !== null ? Math.abs(gpa - official) < 0.01 : null;
+  return { gpa, credits, count: graded.length, matches };
 }

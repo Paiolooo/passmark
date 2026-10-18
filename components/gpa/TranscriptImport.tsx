@@ -1,13 +1,13 @@
 "use client";
 
-import { AlertTriangle, LoaderCircle, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { AlertTriangle, BookOpen, CircleCheck, LoaderCircle, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { PAST_COURSE_COLUMNS, type PastCourseRow, toPastCourse } from "@/lib/courses";
+import { COURSE_COLUMNS, type Course, PAST_COURSE_COLUMNS, type PastCourseRow, toCourse, toPastCourse } from "@/lib/courses";
 import { defaultCounts, orderSemesters, parseCredits, parseGradeOrResult } from "@/lib/gpa";
 import { formatGrade, formatWeight } from "@/lib/grades";
 import { checkPdfFile, readPdfTextItems } from "@/lib/pdf-text";
-import { parseTranscript } from "@/lib/transcript";
+import { type CurrentCourse, parseTranscript } from "@/lib/transcript";
 import { Skeleton, buttonClass, cardClass, errorBox, inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "../ui";
 import { friendlyDbError } from "../useSaver";
 import { PRIVACY_NOTE } from "./GpaApp";
@@ -15,7 +15,14 @@ import { Switch } from "./HistoryList";
 
 /** `group`: a stable id per semester section, so renaming a semester keeps its place and focus. */
 type Draft = { key: number; group: number; semester: string; name: string; credits: string; result: string; counts: boolean };
-type State = { step: "reading" } | { step: "failed" } | { step: "preview"; stated: number | null };
+type State =
+  | { step: "reading" }
+  | { step: "failed" }
+  | { step: "preview"; official: number | null; officialEcts: number | null; current: CurrentCourse[] };
+
+/** Two decimals, like the official GPA on the transcript (cut, not rounded up). */
+const twoDecimals = (x: number) => (Math.floor(x * 100 + 1e-9) / 100).toFixed(2);
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 let nextKey = 0;
 
@@ -34,6 +41,8 @@ function readDraft(d: Draft) {
 export function TranscriptImport({
   file,
   existingCount,
+  existingCourseNames,
+  onCoursesAdded,
   onSaved,
   onCancel,
   onChooseAnother,
@@ -41,6 +50,9 @@ export function TranscriptImport({
 }: {
   file: File;
   existingCount: number;
+  /** Names of the courses already in Courses (current courses with the same name are skipped). */
+  existingCourseNames: string[];
+  onCoursesAdded: (courses: Course[]) => void;
   onSaved: (rows: PastCourseRow[], replaced: boolean) => void;
   onCancel: () => void;
   onChooseAnother: () => void;
@@ -68,7 +80,7 @@ export function TranscriptImport({
       try {
         const transcript = parseTranscript(await readPdfTextItems(file));
         if (cancelled) return;
-        if (transcript.rows.length === 0) {
+        if (transcript.rows.length === 0 && transcript.current.length === 0) {
           setProblem(null);
           setState({ step: "failed" });
           return;
@@ -82,12 +94,16 @@ export function TranscriptImport({
             name: r.name,
             credits: formatWeight(r.credits),
             result: r.grade !== null ? formatGrade(r.grade) : (r.result ?? ""),
-            // Supplementary training isn't part of the official GPA.
-            counts: flags[i] && !r.supplementary,
+            counts: flags[i],
           }));
         setRows(drafts.sort((a, b) => a.group - b.group || a.key - b.key));
         setError(null);
-        setState({ step: "preview", stated: transcript.statedAverage });
+        setState({
+          step: "preview",
+          official: transcript.officialGpa,
+          officialEcts: transcript.officialEcts,
+          current: transcript.current,
+        });
       } catch (err) {
         // The real cause stays in the console for debugging; nothing from the file is logged.
         console.error("PassMark: could not read the transcript PDF", err instanceof Error ? err.name : "error");
@@ -206,6 +222,7 @@ export function TranscriptImport({
   }
 
   const groups = [...new Set(rows.map((r) => r.group))];
+  const matches = overall !== null && state.official !== null ? Math.abs(overall - state.official) < 0.01 : null;
   const counting = rows.filter((r) => r.counts).length;
 
   return (
@@ -219,20 +236,37 @@ export function TranscriptImport({
       </div>
 
       <div className="rounded-[var(--radius-md)] bg-sunken p-4">
-        <p className="flex flex-wrap items-baseline gap-x-3">
-          <span className="text-ink-2">Overall GPA from this transcript:</span>
-          <span className="num text-[2rem] font-semibold leading-none tracking-[-0.03em] text-ink">
-            {overall === null ? "–" : formatGrade(overall)}
+        <p className="num flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="text-ink-2">Your GPA from this transcript:</span>
+          <span className="text-[2rem] font-semibold leading-none tracking-[-0.03em] text-ink">
+            {overall === null ? "–" : twoDecimals(overall)}
           </span>
+          {state.official !== null && (
+            <span className="w-full text-ink-2 sm:w-auto">
+              <span aria-hidden="true" className="hidden sm:inline">
+                ·{" "}
+              </span>
+              Official GPA on transcript:{" "}
+              <strong className="font-semibold text-ink">{state.official.toFixed(2)}</strong>
+            </span>
+          )}
         </p>
         <p className="num mt-1 text-sm text-ink-2">
-          {formatWeight(credits)} ECTS from {counting} course{counting === 1 ? "" : "s"}, credit-weighted.
-          {state.stated !== null && ` Your transcript states ${formatWeight(state.stated)}.`}
+          {formatWeight(credits)} ECTS from {counting} graded course{counting === 1 ? "" : "s"}, credit-weighted
+          {state.officialEcts !== null && ` · Official ECTS passed: ${formatWeight(state.officialEcts)}`}.
         </p>
-        <p className="mt-2 flex items-start gap-1.5 text-sm font-medium text-warn">
-          <AlertTriangle aria-hidden="true" size={15} className="mt-0.5 shrink-0" />
-          Check this matches the average on your official transcript.
-        </p>
+        {matches === true ? (
+          <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-brand-ink">
+            <CircleCheck aria-hidden="true" size={16} strokeWidth={2.25} />
+            Matches the official GPA
+          </p>
+        ) : matches === false ? (
+          <p role="status" className="mt-2 flex items-start gap-1.5 text-sm font-medium text-warn">
+            <AlertTriangle aria-hidden="true" size={15} className="mt-0.5 shrink-0" />
+            Differs from the official GPA. Check the rows below against your transcript.
+          </p>
+        ) : null}
+        <p className="mt-2 text-xs text-ink-3">Check this matches the average on your official transcript.</p>
       </div>
 
       <ul className="list-disc space-y-1 pl-5 text-sm text-ink-2">
@@ -344,6 +378,14 @@ export function TranscriptImport({
         })}
       </div>
 
+      {state.current.length > 0 && (
+        <CurrentCourses
+          current={state.current}
+          existingNames={existingCourseNames}
+          onAdded={onCoursesAdded}
+        />
+      )}
+
       {existingCount > 0 && (
         <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-line p-3">
           <Switch checked={replace} onChange={setReplace} label={`Replace the ${existingCount} courses already in my history`} />
@@ -373,5 +415,85 @@ export function TranscriptImport({
         </button>
       </div>
     </section>
+  );
+}
+
+/** Courses in progress on the transcript: offered for Courses, never saved as history. */
+function CurrentCourses({
+  current,
+  existingNames,
+  onAdded,
+}: {
+  current: CurrentCourse[];
+  existingNames: string[];
+  onAdded: (courses: Course[]) => void;
+}) {
+  const [added, setAdded] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const isThere = (c: CurrentCourse) => [...existingNames, ...added].some((n) => sameName(n, c.name));
+  const missing = current.filter((c) => !isThere(c));
+
+  async function add() {
+    if (saving || missing.length === 0) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const { data, error: e } = await createClient()
+        .from("courses")
+        .insert(missing.map((c) => ({ name: c.name, credits: c.credits })))
+        .select(COURSE_COLUMNS);
+      if (e) throw e;
+      const courses = (data ?? []).map((row) => toCourse({ ...(row as Record<string, unknown>), assessments: [] }));
+      setAdded((a) => [...a, ...courses.map((c) => c.name)]);
+      onAdded(courses);
+    } catch (err) {
+      setError(friendlyDbError(err));
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="rounded-[var(--radius-md)] border border-line p-4">
+      <p className="flex items-center gap-2 font-semibold text-ink">
+        <BookOpen aria-hidden="true" size={16} className="text-brand" />
+        {current.length} course{current.length === 1 ? "" : "s"} in progress
+      </p>
+      <p className="mt-1 text-sm text-ink-2">These aren&apos;t finished, so they don&apos;t go in your history. Track them in Courses.</p>
+      <ul className="mt-2 divide-y divide-line text-sm">
+        {current.map((c) => (
+          <li key={`${c.semester}-${c.name}`} className="flex items-center gap-3 py-1.5">
+            <span className="min-w-0 flex-1 text-ink">{c.name}</span>
+            <span className="num text-ink-3">{formatWeight(c.credits)} ECTS</span>
+            {isThere(c) && (
+              <span className="flex items-center gap-1 text-xs font-medium text-brand-ink">
+                <CircleCheck aria-hidden="true" size={13} />
+                In Courses
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+      {error && (
+        <p role="alert" className={`${errorBox} mt-2`}>
+          {error}
+        </p>
+      )}
+      <div aria-live="polite" className="mt-3">
+        {missing.length > 0 ? (
+          <button type="button" onClick={add} disabled={saving} aria-busy={saving} className={secondaryButton}>
+            <Plus aria-hidden="true" size={16} />
+            {saving
+              ? "Adding…"
+              : `Add ${missing.length === current.length ? "these" : "the other"} ${missing.length} current course${missing.length === 1 ? "" : "s"} to Courses`}
+          </button>
+        ) : (
+          <p className="flex items-center gap-1.5 text-sm font-medium text-brand-ink">
+            <CircleCheck aria-hidden="true" size={16} />
+            All {current.length} are in Courses.
+          </p>
+        )}
+      </div>
+    </div>
   );
 }

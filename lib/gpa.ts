@@ -222,11 +222,13 @@ export function countsInGpa(c: Pick<PastCourse, "grade" | "counts_in_gpa">): boo
 
 /**
  * Orders semester labels: academic years and semester numbers when they can be read
- * ("2023-24 · Semester 2", "Year 1 · Semester 1", "1er semestre 2022/2023"), otherwise as given.
+ * ("24/25 · 1st semester", "2023-24 · Semester 2", "Year 1 · Semester 1"), otherwise as given.
  */
 export function semesterSortKey(label: string): [number, number] | null {
   const t = plain(label);
-  const year = t.match(/\b(19|20)\d{2}\b/)?.[0] ?? t.match(/\byear (\d+)\b/)?.[1] ?? t.match(/\b(\d+)(?:st|nd|rd|th)? year\b/)?.[1];
+  const short = t.match(/\b(\d{2})\/\d{2}\b/)?.[1]; // "24/25" → 2024
+  const year =
+    t.match(/\b(19|20)\d{2}\b/)?.[0] ?? (short !== undefined ? String(2000 + Number(short)) : undefined) ?? t.match(/\byear (\d+)\b/)?.[1] ?? t.match(/\b(\d+)(?:st|nd|rd|th)? year\b/)?.[1];
   const sem =
     t.match(/\b(?:semester|semestre|term|s)\s*(\d)\b/)?.[1] ??
     t.match(/\b(\d)(?:st|nd|rd|th|er|o|º|°)?\s*(?:semester|semestre|term)\b/)?.[1] ??
