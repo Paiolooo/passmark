@@ -33,7 +33,7 @@ export function EmptyState({
       }`}
     >
       <SyllabusIllustration className={compact ? "h-16 w-auto" : "h-24 w-auto"} />
-      <p className={`font-display text-ink ${compact ? "text-xl" : "text-2xl"}`}>{title}</p>
+      <p className={`text-ink ${compact ? "type-section" : "type-title"}`}>{title}</p>
       {text && <p className="max-w-sm text-sm text-ink-2">{text}</p>}
       {children && <div className="mt-1 flex flex-wrap justify-center gap-2">{children}</div>}
     </div>

@@ -174,7 +174,7 @@ export function SyllabusImport({
   }
 
   const heading = (text: string) => (
-    <h3 ref={headingRef} tabIndex={-1} id={`${id}-title`} className="font-display text-2xl leading-tight text-ink focus:outline-none">
+    <h3 ref={headingRef} tabIndex={-1} id={`${id}-title`} className="type-title text-ink focus:outline-none">
       {text}
     </h3>
   );

@@ -12,8 +12,8 @@ The grading contract in `CLAUDE.md` always wins over anything in this file.
    you got. It is the largest thing on screen, in tabular numerals, and it animates to new values.
 2. **Show how much is still open.** The WeightBar makes "35% of this course is still ungraded"
    visible at a glance. Graded = solid, open = hatched.
-3. **Real grades and plans never look alike.** Real grades are solid ink on a sunken surface with
-   a lock icon. Planned (what-if) values sit in a dashed box with the word "Plan".
+3. **Real grades and plans never look alike.** A grade you got is a solid ink box with a lock
+   ("My grade"); a planned (what-if) value is a dashed box ("Plan"). One list holds both.
 4. **Hierarchy through space and type, not boxes.** Prefer whitespace, hairline dividers and
    type weight over nesting bordered cards. One card level per area, at most one inset level.
 5. **Status is text plus icon plus colour**, never colour alone.
@@ -52,25 +52,23 @@ pattern on open WeightBar segments.
 
 ## Typography
 
-- **Display: Instrument Serif** (400, plus italic), via `next/font/google` (self-hosted at build).
-  Used for page titles, section titles, course names and the landing headline. Never bold,
-  never all caps. Tracking `-0.01em`.
-- **UI: Geist** (variable), via `next/font/google`. Everything else, including every number.
-- **Numbers**: always `tabular-nums` (utility `.num`, which also enables `tnum` + `lnum`).
-  Grades use Geist semibold with tight tracking (`-0.03em`).
+One family everywhere: **Geist** (variable), via `next/font/google`, self-hosted at build.
+No serif. Hierarchy comes only from size and weight, through four roles defined as utilities in
+`app/globals.css`. Use the role, never ad-hoc sizes, for any title.
 
-| Step | Size / line-height | Use |
+| Role | Size / line-height / weight | Use |
 | --- | --- | --- |
-| `display-xl` | 56 / 1.02 (40 on phones) | Landing headline |
-| `display-lg` | 40 / 1.1 (32 on phones) | Page titles |
-| `display-md` | 28 / 1.15 | Section titles, auth titles |
-| `display-sm` | 22 / 1.2 | Course names |
-| `grade-xl` | 64 / 1 | The hero grade inside a course |
-| `grade-lg` | 40 / 1 | Course card number, stat tiles |
-| body-lg | 18 / 1.55 | Lead paragraphs |
-| body | 16 / 1.5 | Default |
+| `type-display` | 42 → 56 → 64 / 1.04 / 650, −0.035em | Landing headline only |
+| `type-page` | 32 → 40 / 1.1 / 650, −0.03em | Page titles: "My courses", auth titles, landing section titles |
+| `type-title` | 22 / 1.25 / 600, −0.02em | Card titles: course names, "Your GPA", the syllabus preview |
+| `type-section` | 17 / 1.35 / 600, −0.01em | Sections inside a card: "Grades", "Target grade", form titles |
+| body-lg | 18 / 1.55 / 400 | Lead paragraphs |
+| body | 16 / 1.5 / 400 (names 500) | Default |
 | small | 14 / 1.45 | Secondary text, labels |
 | micro | 12 / 1.35 | Captions; sentence case, never all caps |
+
+- **Numbers**: always `tabular-nums` (utility `.num`, which also enables `tnum` + `lnum`).
+  Big grades use semibold with tight tracking (`-0.03em`).
 
 Line length under ~70 characters for prose (`max-w-prose`/`max-w-xl`).
 
@@ -102,8 +100,9 @@ Line length under ~70 characters for prose (`max-w-prose`/`max-w-xl`).
 | `Card` | `surface` + `line` border + `shadow-card`, `radius-lg`. `interactive` adds hover lift. |
 | `StatusPill` | Tone `good`/`warn`/`bad`/`neutral`: tint background, coloured text, lucide icon. |
 | `Input`, `inputClass` | 44px, `line-strong` border, `surface` background, green focus ring. |
-| `NumberField` | Compact decimal field with a label above, used for the planner value box. |
-| Slider (`.pm-slider`) | Native range input restyled; track fill via `--fill`, minimum marker. |
+| `GradeValue` | The value at the right of a grades row (in `GradesList.tsx`). **Plan**: dashed box, movable. **My grade**: solid ink box with a lock, saved. **Overall**: a parent's combined value on a sunken fill. Tapping it enters a grade (or opens a parent's parts). |
+| `Menu` | "⋯" row menu: arrow keys, Home/End, Escape returns focus, click outside closes. |
+| Slider (`.pm-slider`) | Native range input restyled; track fill via `--fill`, minimum marker. Locked rows draw a static bar with the same geometry so columns line up. |
 | `Segmented` | Row of `aria-pressed` buttons inside one rounded track. Used for target grade. |
 | `Toast` | Fixed, bottom centre. "Saving…" then "Saved" with a check, then fades. Errors stay inline as `role="alert"`, not in a toast. |
 | `Skeleton` | Warm shimmer-free blocks (`sunken`), used by `/app/loading.tsx` and PDF reading. |
@@ -118,8 +117,12 @@ Icons: `lucide-react` only, `strokeWidth` 1.75–2, `aria-hidden`. No emoji anyw
 
 - Landing: max width 1120px. Two-column hero from `lg` (copy left, live demo right), stacked
   below. Left-aligned text throughout; nothing centred except the auth card.
-- App: max width 880px, single column. Order: page title, GPA overview, "My courses" with the
-  add form, then the course list.
+- App: max width 880px, single column. Order: page title, GPA overview, the add form, then the
+  course list.
+- Open course: result panel (gauge, "You need X.X", status) on top, then **one Grades list**:
+  hint line, projected grade bar (sticky on phones), one row per assessment (name · weight,
+  slider, value, ⋯). Parents with parts are one row with a chevron, collapsed by default.
+  Rows use `.grade-row`: two lines on phones, one line from 640px with a fixed name column.
 - Auth: a single 420px card centred on the paper background.
 
 ## Do
@@ -132,6 +135,8 @@ Icons: `lucide-react` only, `strokeWidth` 1.75–2, `aria-hidden`. No emoji anyw
 
 ## Don't
 
+- Don't add a second font family or a serif; don't size titles outside the four type roles.
+- Don't split grades across two places: real grades and plans live in the same list.
 - Don't use all-caps labels, tracked-out eyebrows over every heading, or emoji icons.
 - Don't stack bordered boxes inside bordered boxes inside cards.
 - Don't put the course name through `text-transform`, truncation or line clamping (grading contract).

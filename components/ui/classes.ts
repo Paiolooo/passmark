@@ -52,7 +52,7 @@ export const inputClass = `mt-1 ${fieldClass}`;
 export const labelClass = "block text-xs font-medium text-ink-2";
 
 /** Section heading inside a course. */
-export const sectionHeading = "font-display text-[1.375rem] leading-tight text-ink";
+export const sectionHeading = "type-section text-ink";
 
 /** Card surface used for courses and panels. */
 export const cardClass = "rounded-[var(--radius-lg)] border border-line bg-surface";

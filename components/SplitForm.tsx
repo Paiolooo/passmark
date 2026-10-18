@@ -97,7 +97,7 @@ export function SplitForm({
       }}
       className="space-y-4 border-t border-line bg-sunken px-4 pb-5 pt-4"
     >
-      <h5 id={`${id}-title`} className="font-display text-xl text-ink">
+      <h5 id={`${id}-title`} className="type-section text-ink">
         Split {parent.name} ({formatWeight(parent.weight)}%) into parts
       </h5>
       {parent.grade !== null && (

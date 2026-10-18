@@ -86,7 +86,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
   return (
     <main className="flex flex-1 items-start justify-center px-4 py-10 sm:items-center sm:py-16">
       <div className="w-full max-w-[420px] rounded-[22px] border border-line bg-surface p-6 shadow-pop sm:p-8">
-        <h1 className="font-display text-[2.25rem] leading-tight text-ink">{copy.title}</h1>
+        <h1 className="type-page text-ink">{copy.title}</h1>
         <p className="mt-1 text-ink-2">{copy.intro}</p>
 
         <form onSubmit={onSubmit} noValidate className="mt-7 space-y-5">

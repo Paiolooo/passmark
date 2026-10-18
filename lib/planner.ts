@@ -157,9 +157,13 @@ export function evenSplit(input: PlanInput, target: number): PlanValues {
 }
 
 /**
- * Shifts every row that isn't fixed by the same amount δ so the plan reaches the target,
- * keeping the differences between them. A row that hits 10, 0 or its minimum stays there
- * and the rest of the shift is spread over the other rows, until it settles.
+ * Fits the plan to the target by moving every free row (not in `fixed`) by the same amount.
+ *
+ * Fixed rows are real grades (not rows at all), pinned rows and the row being dragged.
+ * needed = target × total weight − real points − points of the fixed rows. Every free row moves by
+ * δ = (needed − their current points) ÷ their total weight. A row that would pass a bound stops
+ * there and leaves this pass, and the rest is shared again until it settles. A bound only blocks
+ * in its own direction: a row at 10 can still go down, a row at its minimum can still go up.
  */
 export function shiftToTarget(
   input: PlanInput,
@@ -168,27 +172,32 @@ export function shiftToTarget(
   target: number,
 ): PlanValues {
   const next: PlanValues = { ...values };
-  let remaining = target * input.totalWeight - input.points - plannedPoints(input, next);
-  let active = input.rows.filter((r) => !fixed.includes(r.key));
+  const isFixed = (r: PlanRow) => fixed.includes(r.key);
+  const fixedPoints = input.rows.filter(isFixed).reduce((s, r) => s + r.weight * next[r.key], 0);
+  const needed = target * input.totalWeight - input.points - fixedPoints;
 
-  while (active.length > 0 && Math.abs(remaining) > EPS) {
-    const weight = active.reduce((s, r) => s + r.weight, 0);
-    if (weight <= EPS) break;
-    const delta = remaining / weight;
-    const clamped = active.filter((r) => {
-      const v = next[r.key] + delta;
-      return v > 10 + EPS || v < lowest(r) - EPS;
-    });
-    if (clamped.length === 0) {
-      for (const r of active) next[r.key] += delta;
+  let free = input.rows.filter((r) => !isFixed(r) && r.weight > EPS);
+  let settledPoints = 0;
+  while (free.length > 0) {
+    const weight = free.reduce((s, r) => s + r.weight, 0);
+    const current = free.reduce((s, r) => s + r.weight * next[r.key], 0);
+    const delta = (needed - settledPoints - current) / weight;
+    if (Math.abs(delta) <= EPS) break;
+
+    // Only the bound in the direction of travel can stop a row.
+    const stopped = free.filter((r) =>
+      delta > 0 ? next[r.key] + delta > 10 + EPS : next[r.key] + delta < lowest(r) - EPS,
+    );
+    if (stopped.length === 0) {
+      // Snap to the range so rounding dust (e.g. −2e-16) never shows.
+      for (const r of free) next[r.key] = clamp(next[r.key] + delta, lowest(r), 10);
       break;
     }
-    for (const r of clamped) {
-      const bound = delta > 0 ? 10 : lowest(r);
-      remaining -= r.weight * (bound - next[r.key]);
-      next[r.key] = bound;
+    for (const r of stopped) {
+      next[r.key] = delta > 0 ? 10 : lowest(r);
+      settledPoints += r.weight * next[r.key];
     }
-    active = active.filter((r) => !clamped.includes(r));
+    free = free.filter((r) => !stopped.includes(r));
   }
   return next;
 }
@@ -215,12 +224,14 @@ export type PlanStatus = {
   projected: number;
   reachesTarget: boolean;
   passes: boolean;
-  /** The target can't be reached: the adjustable rows are all at 10. */
+  /** The target can't be reached: every free row is at 10 (or there are none). */
   unreachable: boolean;
-  /** Adjustable rows that are at 10 while the target is out of reach (shown in red). */
+  /** Free rows that are at 10 while the target is out of reach (shown in red). */
   short: string[];
-  /** Even the lowest allowed grades on the adjustable rows reach the target. */
+  /** Even the lowest allowed grades on the free rows reach the target. */
   secured: boolean;
+  /** How many rows are free to adjust (not pinned, not being moved). */
+  freeCount: number;
 };
 
 /** How a plan stands against the target. `fixed` = rows that don't adjust (pinned or being moved). */
@@ -242,5 +253,44 @@ export function planStatus(
     unreachable,
     short: unreachable ? adjustable.filter((r) => values[r.key] >= 10 - EPS).map((r) => r.key) : [],
     secured,
+    freeCount: adjustable.length,
   };
+}
+
+/**
+ * Why the plan can't sit exactly on the target, in plain words, or null when it does.
+ * `moving` is the row you're dragging (null when nothing is being moved).
+ */
+export function planMessage(status: PlanStatus, moving: string | null): string | null {
+  const others = moving ? "the others" : "every open grade";
+  if (status.unreachable) {
+    return status.freeCount === 0
+      ? "Not reachable: every other grade is fixed. Unpin a plan or lower your target."
+      : `Not reachable: ${others} ${moving ? "are" : "is"} already at 10.`;
+  }
+  if (status.secured) {
+    return status.freeCount === 0
+      ? "Target secured with these grades."
+      : `Target secured: ${others} ${moving ? "are" : "is"} already at ${moving ? "their" : "its"} minimum.`;
+  }
+  return null;
+}
+
+/**
+ * The combined value of a parent with parts, using real grades and planned values:
+ * the weighted average of its counted items (for "best K of N", the best K plus the open slots).
+ */
+export function combinedValue(assessments: Assessment[], parentId: string, values: PlanValues): number | null {
+  const group = groupAssessments(assessments).find((g) => g.assessment.id === parentId);
+  if (!group || group.parts.length === 0) return null;
+  const parent = group.assessment;
+  const k = effectiveBestOf(parent, group.parts);
+  const items =
+    k === null
+      ? group.parts.map((p) => ({ weight: p.weight, value: p.grade ?? values[p.name] }))
+      : buildCourseModel([parent, ...group.parts])
+          .items.map((i) => ({ weight: i.weight, value: i.grade ?? values[parent.name] }));
+  const counted = items.filter((i) => i.weight > EPS && i.value !== undefined);
+  const weight = counted.reduce((s, i) => s + i.weight, 0);
+  return weight > EPS ? counted.reduce((s, i) => s + i.weight * (i.value as number), 0) / weight : null;
 }

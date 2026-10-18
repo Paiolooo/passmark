@@ -18,9 +18,9 @@ import {
 import { parseCredits } from "@/lib/gpa";
 import type { CourseUpdater } from "./CoursesApp";
 import { AddAssessmentForm, type NewAssessment } from "./AddAssessmentForm";
-import { AssessmentList } from "./AssessmentList";
-import { GradePlanner, type PlanState, hasPlannableRows, usePlanner } from "./GradePlanner";
 import type { EditorActions } from "./AssessmentEditor";
+import { GradesList } from "./GradesList";
+import { type PlanState, hasPlannableRows, usePlanner } from "./usePlanner";
 import type { NewPart } from "./SplitForm";
 import { StatusBadge } from "./StatusBadge";
 import { SyllabusImport } from "./SyllabusImport";
@@ -53,21 +53,18 @@ const sameNumber = (a: number, b: number) => Math.abs(a - b) < 0.001;
 export function CourseCard({
   course,
   initiallyOpen = false,
-  showPlannerTip,
-  onDismissPlannerTip,
   onUpdate,
   onDeleted,
 }: {
   course: Course;
   initiallyOpen?: boolean;
-  showPlannerTip: boolean;
-  onDismissPlannerTip: () => void;
   onUpdate: CourseUpdater;
   onDeleted: (id: string) => void;
 }) {
   const id = useId();
   const [open, setOpen] = useState(initiallyOpen);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  // Parents whose parts are shown; remembered while the page is open.
+  const [expandedParts, setExpandedParts] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
   const [importWarning, setImportWarning] = useState<string | null>(null);
   const { status, save } = useSaver();
@@ -158,7 +155,6 @@ export function CourseCard({
   async function deleteAssessment(assessmentId: string) {
     const { ok } = await save(() => supabase().from("assessments").delete().eq("id", assessmentId));
     if (ok) {
-      setEditingId(null);
       onUpdate(course.id, (c) => ({
         ...c,
         assessments: c.assessments.filter((a) => a.id !== assessmentId && a.parent_id !== assessmentId),
@@ -243,7 +239,7 @@ export function CourseCard({
           className="flex w-full items-start gap-3 rounded-[var(--radius-lg)] p-4 text-left sm:p-6"
         >
           <span className="min-w-0 flex-1">
-            <span className="font-display wrap-anywhere block text-[1.625rem] leading-[1.15] text-ink">
+            <span className="type-title wrap-anywhere block text-ink">
               {course.name}
             </span>
             <span className="num mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
@@ -298,21 +294,9 @@ export function CourseCard({
           <div className="space-y-10 border-t border-line px-4 pb-6 pt-5 sm:px-6">
             <SaveIndicator status={status} />
             <ResultPanel result={result} gauge={gauge} target={course.target_grade} weightItems={weightItems} />
-            {canPlan && (
-              <GradePlanner
-                ref={plannerRef}
-                idPrefix={id}
-                assessments={course.assessments}
-                target={course.target_grade}
-                plan={plan}
-                onPlanChange={setPlan}
-                showTip={showPlannerTip}
-                onDismissTip={onDismissPlannerTip}
-              />
-            )}
-            <section aria-labelledby={`${id}-assessments`} className="space-y-3">
-              <h4 id={`${id}-assessments`} className={sectionHeading}>
-                Assessments
+            <section aria-labelledby={`${id}-grades`} className="space-y-3">
+              <h4 ref={plannerRef} tabIndex={-1} id={`${id}-grades`} className={`${sectionHeading} focus:outline-none`}>
+                Grades
               </h4>
               {picker.input}
               {picker.file ? (
@@ -356,15 +340,19 @@ export function CourseCard({
                   </EmptyState>
                 )
               ) : (
-                <AssessmentList
+                <GradesList
                   idPrefix={id}
                   assessments={course.assessments}
-                  editingId={editingId}
-                  onEdit={(assessmentId) => {
-                    setEditingId(assessmentId);
-                    if (assessmentId) setAdding(false);
-                  }}
+                  target={course.target_grade}
+                  plan={plan}
+                  onPlanChange={setPlan}
                   actions={editorActions}
+                  expanded={expandedParts}
+                  onToggleExpanded={(parentId) =>
+                    setExpandedParts((ids) =>
+                      ids.includes(parentId) ? ids.filter((x) => x !== parentId) : [...ids, parentId],
+                    )
+                  }
                 />
               )}
               {topLevel.length > 0 && (
@@ -398,11 +386,8 @@ export function CourseCard({
                 <button
                   type="button"
                   id={`${id}-add`}
-                  onClick={() => {
-                    setEditingId(null);
-                    setAdding(true);
-                  }}
-                  className={`${buttonClass("ghost")} -ml-3`}
+                  onClick={() => setAdding(true)}
+                  className={`${buttonClass("ghost")} -ml-3 text-sm`}
                 >
                   <Plus aria-hidden="true" size={16} />
                   Add assessment

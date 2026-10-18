@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import { type Assessment, computeCourse } from "./grades";
 import {
   type PlanValues,
+  combinedValue,
   evenSplit,
   moveRow,
   planInput,
+  planMessage,
   planStatus,
   projectedGrade,
   shiftToTarget,
@@ -324,5 +326,110 @@ describe("graded rows", () => {
     const quizRows = input.list.filter((i) => i.kind === "graded");
     expect(quizRows.map((i) => i.kind === "graded" && i.counts)).toEqual([true, false, true]);
     expect(input.rows.map((r) => r.key)).toEqual(["Final"]);
+  });
+});
+
+// ─── Bounds only block in their own direction ────────────────────────────
+
+describe("rows at a bound can still move the other way", () => {
+  it("your case: two rows set to 10, released, then a third moves up → the rows at 10 come down", () => {
+    let v = evenSplit(input, TARGET);
+    v = moveRow(input, v, [], "Tests", 10, TARGET);
+    // Project to 10 while Tests is released (not pinned): set both explicitly at 10 to be sure.
+    v = shiftToTarget(input, { ...v, Tests: 10, Project: 10 }, ["Tests", "Project"], TARGET);
+    expect(v.Tests).toBe(10);
+    expect(v.Project).toBe(10);
+    // Both released. Moving Presentation up must bring Tests and Project down from 10.
+    const next = moveRow(input, v, [], "Presentation", v.Presentation + 3, TARGET);
+    expect(next.Tests).toBeLessThan(10);
+    expect(next.Project).toBeLessThan(10);
+    expect(next.Tests).toBeCloseTo(next.Project, 9);
+    expect(projectedGrade(input, next)).toBeCloseTo(TARGET, 9);
+  });
+
+  it("every free row moves by the same amount when nothing hits a bound", () => {
+    const v: PlanValues = { Tests: 10, Project: 10, Presentation: 5, "Final Exam": 5 };
+    const next = moveRow(input, v, [], "Presentation", 9, TARGET);
+    const shift = next.Tests - 10;
+    expect(shift).toBeLessThan(0);
+    expect(next.Project - 10).toBeCloseTo(shift, 9);
+    expect(next["Final Exam"] - 5).toBeCloseTo(shift, 9);
+  });
+
+  it("a row at its minimum can go up again", () => {
+    const v: PlanValues = { Tests: 10, Project: 10, Presentation: 10, "Final Exam": 4 };
+    const target = projectedGrade(input, v);
+    const next = moveRow(input, v, [], "Tests", 0, target);
+    expect(next["Final Exam"]).toBeGreaterThan(4);
+    expect(projectedGrade(input, next)).toBeCloseTo(target, 9);
+  });
+
+  it("dragging in many orders always lands on target unless every free row is blocked", () => {
+    let seed = 7;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let run = 0; run < 500; run++) {
+      const target = Math.round(rnd() * 100) / 10;
+      let v = evenSplit(input, target);
+      for (let step = 0; step < 10; step++) {
+        const key = KEYS[Math.floor(rnd() * KEYS.length)];
+        v = moveRow(input, v, [], key, rnd() < 0.3 ? 10 : Math.round(rnd() * 100) / 10, target);
+        const status = planStatus(input, v, [key], target);
+        if (!status.unreachable && !status.secured) expect(status.projected).toBeCloseTo(target, 6);
+        if (status.unreachable) expect(status.short.length).toBe(KEYS.length - 1);
+        expect(Object.values(v).every((x) => x >= 0 && x <= 10)).toBe(true);
+      }
+    }
+  });
+});
+
+describe("planMessage: never fail silently", () => {
+  it("says the others are at 10 when the target is out of reach", () => {
+    const v = moveRow(input, evenSplit(input, 9), [], "Final Exam", 4, 9);
+    expect(planMessage(planStatus(input, v, ["Final Exam"], 9), "Final Exam")).toBe(
+      "Not reachable: the others are already at 10.",
+    );
+  });
+
+  it("says the others are at their minimum when the target is secured", () => {
+    const v = moveRow(input, evenSplit(input, 2), [], "Final Exam", 10, 2);
+    expect(planMessage(planStatus(input, v, ["Final Exam"], 2), "Final Exam")).toBe(
+      "Target secured: the others are already at their minimum.",
+    );
+  });
+
+  it("explains when every other row is pinned", () => {
+    const pinned = ["Tests", "Project", "Presentation"];
+    const v = moveRow(input, evenSplit(input, TARGET), pinned, "Final Exam", 4, TARGET);
+    expect(planMessage(planStatus(input, v, [...pinned, "Final Exam"], TARGET), "Final Exam")).toMatch(
+      /every other grade is fixed/,
+    );
+  });
+
+  it("says nothing when the plan is on target", () => {
+    expect(planMessage(planStatus(input, evenSplit(input, TARGET), [], TARGET), null)).toBeNull();
+  });
+});
+
+describe("combinedValue of a parent with parts", () => {
+  const parent = row({ name: "Assignments", weight: 20 });
+  const p1 = row({ name: "Assignment #1", parent_id: parent.id, weight: 10, grade: 9, position: 0 });
+  const p2 = row({ name: "Assignment #2", parent_id: parent.id, weight: 10, position: 1 });
+
+  it("averages real grades and planned values by weight", () => {
+    expect(combinedValue([parent, p1, p2], parent.id, { "Assignment #2": 6 })).toBeCloseTo(7.5, 9);
+  });
+
+  it("best K of N: the best K real grades plus the planned open slots", () => {
+    const quizzes = row({ name: "Quizzes", weight: 30, best_of: 2 });
+    const q = [9, 5, null].map((grade, i) =>
+      row({ name: `Quiz ${i + 1}`, parent_id: quizzes.id, weight: 10, grade, position: i }),
+    );
+    // Both graded quizzes count until a third is graded: (9 + 5) / 2 = 7.
+    expect(combinedValue([quizzes, ...q], quizzes.id, { Quizzes: 8 })).toBeCloseTo(7, 9);
+    const one = [9, null, null].map((grade, i) =>
+      row({ name: `Q${i + 1}`, parent_id: quizzes.id, weight: 10, grade, position: i }),
+    );
+    // One graded, one open slot planned at 8: (9 + 8) / 2.
+    expect(combinedValue([quizzes, ...one], quizzes.id, { Quizzes: 8 })).toBeCloseTo(8.5, 9);
   });
 });

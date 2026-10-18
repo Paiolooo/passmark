@@ -123,7 +123,7 @@ export default function LandingPage() {
           <div className="relative mx-auto grid max-w-[1120px] gap-12 px-4 pb-16 pt-12 sm:px-6 sm:pt-20 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:gap-16 lg:pb-24">
             <div>
               <p className="text-sm font-medium text-brand-ink">For IE University students</p>
-              <h1 className="font-display mt-4 max-w-[13ch] text-[2.75rem] leading-[1.02] text-ink sm:text-[3.75rem] lg:text-[4.25rem]">
+              <h1 className="type-display mt-4 max-w-[14ch] text-ink">
                 Know exactly what you need on the final.
               </h1>
               <p className="mt-6 max-w-[34rem] text-lg leading-relaxed text-ink-2">
@@ -144,7 +144,7 @@ export default function LandingPage() {
 
         <section aria-labelledby="how-title" className="border-t border-line bg-surface/60">
           <div className="mx-auto max-w-[1120px] px-4 py-16 sm:px-6 sm:py-24">
-            <h2 id="how-title" className="font-display text-[2rem] leading-tight text-ink sm:text-[2.5rem]">
+            <h2 id="how-title" className="type-page text-ink">
               How it works
             </h2>
             <ol className="mt-10 grid gap-10 md:grid-cols-3 md:gap-8">
@@ -154,7 +154,7 @@ export default function LandingPage() {
                     {step.visual}
                   </div>
                   <div className="mt-5 grid grid-cols-[1.5rem_1fr] gap-x-2">
-                    <span aria-hidden="true" className="num font-display text-[1.75rem] leading-[1.1] text-brand-ink">
+                    <span aria-hidden="true" className="num text-lg font-semibold leading-[1.55] text-brand-ink">
                       {i + 1}
                     </span>
                     <div>
@@ -190,7 +190,7 @@ export default function LandingPage() {
 
         <section aria-labelledby="faq-title" className="border-t border-line">
           <div className="mx-auto grid max-w-[1120px] gap-8 px-4 py-16 sm:px-6 sm:py-24 lg:grid-cols-[1fr_2fr]">
-            <h2 id="faq-title" className="font-display text-[2rem] leading-tight text-ink sm:text-[2.5rem]">
+            <h2 id="faq-title" className="type-page text-ink">
               Questions
             </h2>
             <div className="divide-y divide-line border-y border-line">

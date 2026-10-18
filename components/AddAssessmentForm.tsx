@@ -112,7 +112,7 @@ export function AddAssessmentForm({
       }}
       className="rounded-[var(--radius-md)] border border-line bg-sunken p-4"
     >
-      <h4 id={`${id}-title`} className="font-display text-xl text-ink">
+      <h4 id={`${id}-title`} className="type-section text-ink">
         Add assessment
       </h4>
       <div className="mt-2">

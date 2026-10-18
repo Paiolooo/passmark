@@ -13,7 +13,7 @@ export function Wordmark() {
         <path d="M7 18a7 7 0 0 1 14 0" fill="none" stroke="var(--on-brand)" strokeOpacity=".35" strokeWidth="2.6" strokeLinecap="round" />
         <path d="M7 18a7 7 0 0 1 11.2-5.6" fill="none" stroke="var(--on-brand)" strokeWidth="2.6" strokeLinecap="round" />
       </svg>
-      <span className="font-display text-[1.5rem] leading-none text-ink">PassMark</span>
+      <span className="text-[1.1875rem] font-semibold tracking-[-0.025em] text-ink">PassMark</span>
     </span>
   );
 }

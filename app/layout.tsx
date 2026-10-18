@@ -1,17 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Instrument_Serif } from "next/font/google";
+import { Geist } from "next/font/google";
 import { SiteHeader } from "@/components/SiteHeader";
 import "./globals.css";
 
 // Self-hosted at build time by next/font: no requests to other domains at runtime.
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist", display: "swap" });
-const instrument = Instrument_Serif({
-  subsets: ["latin"],
-  weight: "400",
-  style: ["normal", "italic"],
-  variable: "--font-instrument",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "PassMark: know what you need on the final",
@@ -29,7 +22,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`h-full antialiased ${geist.variable} ${instrument.variable}`}>
+    <html lang="en" className={`h-full antialiased ${geist.variable}`}>
       <body className="flex min-h-full flex-col">
         <a
           href="#main"

@@ -31,7 +31,7 @@ export function LandingDemo() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-medium text-ink-3">Try it: example course</p>
-          <h2 id={`${id}-title`} className="font-display mt-0.5 text-[1.75rem] leading-tight text-ink">
+          <h2 id={`${id}-title`} className="type-title mt-0.5 text-ink">
             {EXAMPLE_COURSE.name}
           </h2>
         </div>

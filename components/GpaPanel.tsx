@@ -86,7 +86,7 @@ export function GpaPanel({ courses, data }: { courses: Course[]; data: GpaData }
   return (
     <Card as="section" aria-labelledby={`${id}-title`} className="p-5 sm:p-7">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2 id={`${id}-title`} className="font-display text-[1.75rem] leading-tight text-ink">
+        <h2 id={`${id}-title`} className="type-title text-ink">
           Your GPA
         </h2>
         {nth !== null && <p className="text-sm text-ink-2">Your {ordinal(nth)} semester</p>}
@@ -384,7 +384,7 @@ function PastSemestersForm({
 
   return (
     <form onSubmit={save} noValidate aria-labelledby={`${id}-title`} className="space-y-5 rounded-[var(--radius-md)] border border-line bg-sunken/50 p-4 sm:p-5">
-      <h3 id={`${id}-title`} className="font-display text-xl text-ink">
+      <h3 id={`${id}-title`} className="type-section text-ink">
         Add your past semesters
       </h3>
 

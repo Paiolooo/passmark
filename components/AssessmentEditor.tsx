@@ -5,12 +5,11 @@ import {
   type Assessment,
   formatGrade,
   formatWeight,
-  parseGrade,
   parseMinGrade,
   parseWeight,
 } from "@/lib/grades";
 import { SplitForm, type NewPart } from "./SplitForm";
-import { dangerButton, dangerFilledButton, fieldClass, inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "./ui";
+import { inputClass, labelClass, primaryButton, secondaryButton } from "./ui";
 
 export type EditorActions = {
   update: (id: string, patch: Partial<Assessment>) => Promise<boolean>;
@@ -18,28 +17,30 @@ export type EditorActions = {
   split: (parent: Assessment, parts: NewPart[], bestOf: number | null) => Promise<boolean>;
 };
 
-type Field = "grade" | "weight" | "min_grade" | "best_of";
+type Field = "weight" | "min_grade" | "best_of";
 
 const text = (v: number | null, format: (n: number) => string) => (v === null ? "" : format(v));
 
-/** Small editor for one assessment: grade first, then weight and minimum. */
+/**
+ * Small editor for one assessment. "details" edits weight and minimum (and "best K" for parts);
+ * "split" opens straight on splitting it into parts. Grades are entered from the grades list.
+ */
 export function AssessmentEditor({
   assessment: a,
   parts,
-  canSplit,
+  mode = "details",
   actions,
   onClose,
 }: {
   assessment: Assessment;
   parts: Assessment[];
-  canSplit: boolean;
+  mode?: "details" | "split";
   actions: EditorActions;
   onClose: () => void;
 }) {
   const id = useId();
   const isParent = parts.length > 0;
   const [values, setValues] = useState({
-    grade: text(a.grade, formatGrade),
     weight: formatWeight(a.weight),
     min_grade: text(a.min_grade, formatGrade),
     bestOfOn: a.best_of !== null,
@@ -47,8 +48,7 @@ export function AssessmentEditor({
   });
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [pending, setPending] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [splitting, setSplitting] = useState(false);
+  const splitting = mode === "split";
 
   const set = (field: keyof typeof values) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setValues((v) => ({ ...v, [field]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
@@ -57,11 +57,9 @@ export function AssessmentEditor({
     event.preventDefault();
     if (pending) return;
 
-    const grade = isParent ? null : parseGrade(values.grade);
     const weight = parseWeight(values.weight);
     const minGrade = parseMinGrade(values.min_grade);
     const next: Partial<Record<Field, string>> = {};
-    if (grade && !grade.ok) next.grade = grade.error;
     if (!weight.ok) next.weight = weight.error;
     if (!minGrade.ok) next.min_grade = minGrade.error;
 
@@ -78,7 +76,6 @@ export function AssessmentEditor({
     if (Object.keys(next).length > 0) return;
 
     const patch: Partial<Assessment> = {};
-    if (grade?.ok && grade.value !== a.grade) patch.grade = grade.value;
     if (weight.ok && weight.value !== a.weight) patch.weight = weight.value!;
     if (minGrade.ok && minGrade.value !== a.min_grade) patch.min_grade = minGrade.value;
     if (isParent && bestOf !== a.best_of) patch.best_of = bestOf;
@@ -90,21 +87,14 @@ export function AssessmentEditor({
     if (ok) onClose();
   }
 
-  async function remove() {
-    setPending(true);
-    const ok = await actions.remove(a.id);
-    setPending(false);
-    if (!ok) setConfirmDelete(false);
-  }
-
   const field = (
-    key: "grade" | "weight" | "min_grade",
+    key: "weight" | "min_grade",
     label: string,
     placeholder: string,
-    options: { autoFocus?: boolean; large?: boolean } = {},
+    options: { autoFocus?: boolean } = {},
   ) => (
     <div>
-      <label htmlFor={`${id}-${key}`} className={options.large ? "block text-sm font-medium text-ink" : labelClass}>
+      <label htmlFor={`${id}-${key}`} className={labelClass}>
         {label}
       </label>
       <input
@@ -118,7 +108,7 @@ export function AssessmentEditor({
         onChange={set(key)}
         aria-invalid={errors[key] ? true : undefined}
         aria-describedby={errors[key] ? `${id}-${key}-error` : undefined}
-        className={`num ${options.large ? `mt-1 ${fieldClass.replace("text-base", "text-lg font-semibold")}` : inputClass}`}
+        className={`${inputClass} num`}
       />
       {errors[key] && (
         <p id={`${id}-${key}-error`} role="alert" className="mt-1 text-xs text-bad">
@@ -132,7 +122,7 @@ export function AssessmentEditor({
     return (
       <SplitForm
         parent={a}
-        onCancel={() => setSplitting(false)}
+        onCancel={onClose}
         onSplit={async (newParts, bestOf) => {
           const ok = await actions.split(a, newParts, bestOf);
           if (ok) onClose();
@@ -146,7 +136,7 @@ export function AssessmentEditor({
     <form
       onSubmit={save}
       noValidate
-      aria-label={`Edit ${a.name}`}
+      aria-label={`Edit weight and minimum: ${a.name}`}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();
@@ -155,16 +145,8 @@ export function AssessmentEditor({
       }}
       className="space-y-4 border-t border-line bg-sunken px-4 pb-5 pt-4"
     >
-      {isParent ? (
-        <p className="text-sm text-ink-2">
-          Grades are entered on the parts below. {a.name}&apos;s grade is calculated from them.
-        </p>
-      ) : (
-        field("grade", "Grade (0–10)", "e.g. 6,5", { autoFocus: true, large: true })
-      )}
-
       <div className="grid grid-cols-2 gap-2">
-        {field("weight", "Weight (%)", "e.g. 30", { autoFocus: isParent })}
+        {field("weight", "Weight (%)", "e.g. 30", { autoFocus: true })}
         {field("min_grade", "Minimum grade", "none")}
       </div>
 
@@ -207,45 +189,14 @@ export function AssessmentEditor({
         </div>
       )}
 
-      {canSplit && (
-        <button type="button" onClick={() => setSplitting(true)} className={linkButton}>
-          Split into parts
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="submit" disabled={pending} aria-busy={pending} className={primaryButton}>
+          {pending ? "Saving…" : "Save"}
         </button>
-      )}
-
-      {confirmDelete ? (
-        <div role="group" aria-label="Confirm delete" className="rounded-[var(--radius-sm)] border border-bad-line bg-bad-tint p-3">
-          <p className="wrap-anywhere text-sm text-bad">
-            Delete {a.name}
-            {isParent ? ` and its ${parts.length} parts` : ""}?
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={pending}
-              onClick={remove}
-              className={dangerFilledButton}
-            >
-              {pending ? "Deleting…" : "Yes, delete"}
-            </button>
-            <button type="button" autoFocus onClick={() => setConfirmDelete(false)} className={secondaryButton}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="submit" disabled={pending} aria-busy={pending} className={primaryButton}>
-            {pending ? "Saving…" : "Save"}
-          </button>
-          <button type="button" onClick={onClose} className={secondaryButton}>
-            Cancel
-          </button>
-          <button type="button" onClick={() => setConfirmDelete(true)} className={`${dangerButton} ml-auto`}>
-            Delete
-          </button>
-        </div>
-      )}
+        <button type="button" onClick={onClose} className={secondaryButton}>
+          Cancel
+        </button>
+      </div>
     </form>
   );
 }

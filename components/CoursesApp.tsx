@@ -30,8 +30,6 @@ export function CoursesApp({
   const [announcement, setAnnouncement] = useState("");
   const [openedId, setOpenedId] = useState<string | null>(null);
   const [importWarning, setImportWarning] = useState<string | null>(null);
-  // Remembered only in memory, never in browser storage.
-  const [plannerTipDismissed, setPlannerTipDismissed] = useState(false);
   const picker = usePdfPicker();
   const busy = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -91,7 +89,7 @@ export function CoursesApp({
   return (
     <main className="mx-auto w-full max-w-[880px] flex-1 px-4 pb-24 pt-8 sm:px-6 sm:pt-12">
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-        <h1 className="font-display text-[2.5rem] leading-none text-ink sm:text-[3rem]">My courses</h1>
+        <h1 className="type-page text-ink">My courses</h1>
         {hasCourses && <SummaryPills summary={summary} />}
       </header>
 
@@ -223,8 +221,6 @@ export function CoursesApp({
                 key={course.id}
                 course={course}
                 initiallyOpen={course.id === openedId}
-                showPlannerTip={!plannerTipDismissed}
-                onDismissPlannerTip={() => setPlannerTipDismissed(true)}
                 onUpdate={updateCourse}
                 onDeleted={removeCourse}
               />
