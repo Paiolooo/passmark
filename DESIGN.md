@@ -101,6 +101,8 @@ Line length under ~70 characters for prose (`max-w-prose`/`max-w-xl`).
 | `StatusPill` | Tone `good`/`warn`/`bad`/`neutral`: tint background, coloured text, lucide icon. |
 | `Input`, `inputClass` | 44px, `line-strong` border, `surface` background, green focus ring. |
 | `GradeValue` | The value at the right of a grades row (in `GradesList.tsx`). **Plan**: dashed box, movable. **My grade**: solid ink box with a lock, saved. **Overall**: a parent's combined value on a sunken fill. Tapping it enters a grade (or opens a parent's parts). |
+| `AppNav` | Header switch for logged-in users: "Courses" (/app) and "GPA" (/gpa) in one pill track, the current page raised (`aria-current="page"`), 44px tall, next to the mark. On phones only the mark shows beside it. |
+| `Switch` | On/off control (checkbox with `role="switch"`), 44px target; used for "Counts in GPA". Disabled when a course has no numeric grade. |
 | `Menu` | "⋯" row menu: arrow keys, Home/End, Escape returns focus, click outside closes. |
 | Slider (`.pm-slider`) | Native range input restyled; track fill via `--fill`, minimum marker. Locked rows draw a static bar with the same geometry so columns line up. |
 | `Segmented` | Row of `aria-pressed` buttons inside one rounded track. Used for target grade. |
@@ -123,6 +125,11 @@ Icons: `lucide-react` only, `strokeWidth` 1.75–2, `aria-hidden`. No emoji anyw
   hint line, projected grade bar (sticky on phones), one row per assessment (name · weight,
   slider, value, ⋯). Parents with parts are one row with a chevron, collapsed by default.
   Rows use `.grade-row`: two lines on phones, one line from 640px with a fixed name column.
+- GPA (/gpa): page title, three stat tiles (Overall GPA, This semester, Credits completed), the GPA
+  per semester chart with its table, "What GPA do I want?", then "My history": semesters as
+  collapsible cards (newest open), each course with ECTS, grade or result and a "Counts" switch.
+  "Import transcript PDF" is the primary action, "Add manually" the secondary one. Every place
+  that reads a transcript shows the privacy line.
 - Auth: a single 420px card centred on the paper background.
 
 ## Do

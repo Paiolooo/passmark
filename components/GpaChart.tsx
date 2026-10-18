@@ -33,13 +33,13 @@ export function GpaChart({ points }: { points: GpaPoint[] }) {
 
   return (
     <figure className="m-0">
-      <figcaption className="text-sm font-semibold text-ink">GPA per semester</figcaption>
-      <div className="mt-2 overflow-x-auto">
+      <figcaption className="sr-only">GPA per semester</figcaption>
+      <div className="mt-2">
         <svg
           viewBox={`0 0 ${W} ${H}`}
           role="img"
           aria-label={`GPA per semester. ${summary}`}
-          className="block h-auto w-full min-w-[320px]"
+          className="block h-auto w-full overflow-visible"
         >
           {ticks.map((t) => (
             <g key={t}>

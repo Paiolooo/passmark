@@ -30,3 +30,6 @@ coverage
 
 # design screenshots (local only)
 screenshots/
+
+# your own transcript and any test that uses it (never commit)
+transcript-test/

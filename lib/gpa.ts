@@ -32,7 +32,7 @@ export type AcademicProfile = {
   prior_credits: number | null;
 };
 
-export type PastRecord = { points: number; credits: number; source: "semesters" | "summary" };
+export type PastRecord = { points: number; credits: number; source: "semesters" | "summary" | "history" };
 
 const hasCredits = (c: GpaCourse): c is GpaCourse & { credits: number } =>
   c.credits !== null && c.credits > EPS;
@@ -179,4 +179,164 @@ export function parseCredits(raw: string): number | null {
 export function parseGpa(raw: string): number | null {
   const n = parseDecimal(raw);
   return n !== null && n >= 0 && n <= 10 ? n : null;
+}
+
+// ─── History: past courses (from a transcript or typed) ──────────────────
+
+/** A course from a past semester. `grade` is null for results like "Pass" or "Recognized". */
+export type PastCourse = {
+  name: string;
+  semester_label: string;
+  credits: number;
+  grade: number | null;
+  result_label: string | null;
+  counts_in_gpa: boolean;
+  position: number;
+};
+
+export type ResultKind = "pass" | "recognized" | "honors" | "fail" | "other";
+
+const plain = (s: string) =>
+  s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+
+/** What a non-numeric result means: "Apto" → pass, "Convalidada" → recognized, "Suspenso" → fail. */
+export function classifyResult(label: string): ResultKind {
+  const t = plain(label);
+  if (/\b(no apto|not passed|fail(ed)?|suspens[oa]?|no presentad[oa]|not presented|absent|ns|np)\b/.test(t)) return "fail";
+  if (/matricula de honor|\bmh\b|honou?rs?|distinction/.test(t)) return "honors";
+  if (/convalid|reconoc|recogni[sz]|adaptad|transfer|exempt|equivalen/.test(t)) return "recognized";
+  if (/\b(apto|pass(ed)?|aprobad[oa]|superad[oa]|completed?)\b/.test(t)) return "pass";
+  return "other";
+}
+
+/** A past course was passed: a grade of 5.0 or more, or a passing result without a grade. */
+export function isPassed(c: Pick<PastCourse, "grade" | "result_label">): boolean {
+  if (c.grade !== null) return c.grade >= 5 - EPS;
+  return c.result_label !== null && ["pass", "recognized", "honors"].includes(classifyResult(c.result_label));
+}
+
+/** Counts in the GPA: switched on and with a numeric grade (results without a grade never count). */
+export function countsInGpa(c: Pick<PastCourse, "grade" | "counts_in_gpa">): boolean {
+  return c.counts_in_gpa && c.grade !== null;
+}
+
+/**
+ * Orders semester labels: academic years and semester numbers when they can be read
+ * ("2023-24 · Semester 2", "Year 1 · Semester 1", "1er semestre 2022/2023"), otherwise as given.
+ */
+export function semesterSortKey(label: string): [number, number] | null {
+  const t = plain(label);
+  const year = t.match(/\b(19|20)\d{2}\b/)?.[0] ?? t.match(/\byear (\d+)\b/)?.[1] ?? t.match(/\b(\d+)(?:st|nd|rd|th)? year\b/)?.[1];
+  const sem =
+    t.match(/\b(?:semester|semestre|term|s)\s*(\d)\b/)?.[1] ??
+    t.match(/\b(\d)(?:st|nd|rd|th|er|o|º|°)?\s*(?:semester|semestre|term)\b/)?.[1] ??
+    (/\b(first|primer|fall|autumn|otono)\b/.test(t) ? "1" : /\b(second|segundo|spring|primavera)\b/.test(t) ? "2" : undefined);
+  if (year === undefined && sem === undefined) return null;
+  return [year === undefined ? 0 : Number(year), sem === undefined ? 0 : Number(sem)];
+}
+
+/** Semester labels in order: readable ones sorted, the rest after them in the order given. */
+export function orderSemesters(labels: string[]): string[] {
+  const unique = [...new Set(labels)];
+  const keyed = unique.map((label, i) => ({ label, i, key: semesterSortKey(label) }));
+  return keyed
+    .sort((a, b) => {
+      if (a.key && b.key) return a.key[0] - b.key[0] || a.key[1] - b.key[1] || a.i - b.i;
+      if (a.key) return -1;
+      if (b.key) return 1;
+      return a.i - b.i;
+    })
+    .map((k) => k.label);
+}
+
+/**
+ * Default "counts in GPA" for imported rows: a course taken more than once counts only in its
+ * latest attempt; results without a numeric grade don't count. Returns one flag per row.
+ */
+export function defaultCounts(rows: Pick<PastCourse, "name" | "semester_label" | "grade" | "position">[]): boolean[] {
+  const order = orderSemesters(rows.map((r) => r.semester_label));
+  const rank = (r: (typeof rows)[number]) => [order.indexOf(r.semester_label), r.position] as const;
+  const latest = new Map<string, number>();
+  rows.forEach((r, i) => {
+    const key = plain(r.name);
+    const best = latest.get(key);
+    if (best === undefined) return latest.set(key, i);
+    const [a1, a2] = rank(rows[best]);
+    const [b1, b2] = rank(r);
+    if (b1 > a1 || (b1 === a1 && b2 >= a2)) latest.set(key, i);
+  });
+  return rows.map((r, i) => r.grade !== null && latest.get(plain(r.name)) === i);
+}
+
+export type HistorySemester<C extends PastCourse = PastCourse, S extends PastSemester = PastSemester> = {
+  label: string;
+  courses: C[];
+  /** A semester's GPA typed as one number (used only when the semester has no counted courses). */
+  summary: S | null;
+  /** True when the semester has counted courses, so its typed GPA is not used. */
+  summaryReplaced: boolean;
+  /** Counted credits and the semester's GPA. */
+  credits: number;
+  points: number;
+  gpa: number | null;
+};
+
+/** Past courses and typed semester GPAs, grouped and ordered by semester. */
+export function groupHistory<C extends PastCourse, S extends PastSemester>(
+  courses: C[],
+  summaries: S[],
+): HistorySemester<C, S>[] {
+  const labels = orderSemesters([...courses.map((c) => c.semester_label), ...summaries.map((s) => s.label)]);
+  return labels.map((label) => {
+    const list = courses.filter((c) => c.semester_label === label).sort((a, b) => a.position - b.position);
+    const summary = summaries.find((s) => s.label === label) ?? null;
+    const counted = list.filter(countsInGpa);
+    const useSummary = counted.length === 0 && summary !== null;
+    const credits = useSummary ? summary.credits : counted.reduce((s, c) => s + c.credits, 0);
+    const points = useSummary ? summary.gpa * summary.credits : counted.reduce((s, c) => s + c.credits * (c.grade as number), 0);
+    return {
+      label,
+      courses: list,
+      summary,
+      summaryReplaced: summary !== null && !useSummary,
+      credits,
+      points,
+      gpa: credits > EPS ? points / credits : null,
+    };
+  });
+}
+
+/** All past semesters as one record for the cumulative GPA (null when there is nothing). */
+export function historyRecord(history: HistorySemester[]): PastRecord | null {
+  const credits = history.reduce((s, h) => s + h.credits, 0);
+  if (credits <= EPS) return null;
+  return { points: history.reduce((s, h) => s + h.points, 0), credits, source: "history" };
+}
+
+/**
+ * Credits completed: passed past courses (counted once per course, latest attempt), typed
+ * semester GPAs, and this semester's courses with a passing final grade.
+ */
+export function creditsCompleted(history: HistorySemester[], current: GpaCourse[]): number {
+  // A semester counted through its typed GPA counts its credits once, through that GPA.
+  const all = history.filter((h) => !(h.summary && !h.summaryReplaced)).flatMap((h) => h.courses);
+  const flags = defaultCounts(all.map((c) => ({ ...c, grade: 0 })));
+  const pastCourses = all.filter((c, i) => flags[i] && isPassed(c)).reduce((s, c) => s + c.credits, 0);
+  const typed = history.filter((h) => h.summary && !h.summaryReplaced).reduce((s, h) => s + h.credits, 0);
+  const now = current
+    .filter((c) => hasCredits(c) && c.result.outcome === "final" && c.result.badge === "Passed")
+    .reduce((s, c) => s + (c.credits as number), 0);
+  return pastCourses + typed + now;
+}
+
+/** One field for "grade or result": "7,5" → a grade; "Pass" or "Convalidada" → a result label. */
+export function parseGradeOrResult(raw: string):
+  | { ok: true; grade: number | null; result_label: string | null }
+  | { ok: false; error: string } {
+  const t = raw.trim();
+  if (!t) return { ok: false, error: "Type a grade (0–10) or a result like Pass." };
+  const n = parseDecimal(t);
+  if (n !== null) return n <= 10 ? { ok: true, grade: n, result_label: null } : { ok: false, error: "Grades go from 0 to 10." };
+  if (/^\d/.test(t)) return { ok: false, error: "Use a number from 0 to 10, e.g. 7,5." };
+  return { ok: true, grade: null, result_label: t.slice(0, 60) };
 }

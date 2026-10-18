@@ -4,9 +4,9 @@ import type { TextItem } from "./syllabus";
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 
 /** Plain-language problem with the chosen file, or null if it can be read. */
-export function checkPdfFile(file: File): string | null {
+export function checkPdfFile(file: File, what = "the syllabus PDF"): string | null {
   const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-  if (!isPdf) return "That file isn't a PDF. Choose the syllabus PDF.";
+  if (!isPdf) return `That file isn't a PDF. Choose ${what}.`;
   if (file.size > MAX_PDF_BYTES) return "That PDF is larger than 10 MB. Choose a smaller file.";
   return null;
 }

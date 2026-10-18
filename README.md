@@ -7,13 +7,13 @@ Built with Next.js (App Router), Tailwind CSS and Supabase (Auth + Postgres with
 ## Run locally
 
 1. Create `.env.local` with `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
-2. Run `supabase/schema.sql` once in the Supabase SQL Editor.
+2. Run `supabase/schema.sql` once in the Supabase SQL Editor. On a database created before the GPA page, run `supabase/add-transcript.sql` instead (safe to run again).
 3. `npm install`, then `npm run dev` and open http://localhost:3000.
 
 ## Scripts
 
 - `npm run dev`: development server
-- `npm test`: unit tests (vitest)
+- `npm test`: unit tests (vitest). Tests that use a real transcript live only in the git-ignored `transcript-test/` folder and don't exist elsewhere.
 - `npm run build`: production build
 
 Independent student project. Not affiliated with IE University.

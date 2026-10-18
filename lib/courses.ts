@@ -83,3 +83,32 @@ export function toPastSemester(row: Row): PastSemesterRow {
     position: num(row.position ?? 0),
   };
 }
+
+// ─── GPA history: past courses ────────────────────────────────────────────
+
+export const PAST_COURSE_COLUMNS =
+  "id, name, semester_label, credits, grade, result_label, counts_in_gpa, position, created_at";
+
+export type PastCourseRow = {
+  id: string;
+  name: string;
+  semester_label: string;
+  credits: number;
+  grade: number | null;
+  result_label: string | null;
+  counts_in_gpa: boolean;
+  position: number;
+};
+
+export function toPastCourse(row: Row): PastCourseRow {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    semester_label: String(row.semester_label),
+    credits: num(row.credits),
+    grade: numOrNull(row.grade),
+    result_label: row.result_label == null ? null : String(row.result_label),
+    counts_in_gpa: row.counts_in_gpa !== false,
+    position: num(row.position ?? 0),
+  };
+}

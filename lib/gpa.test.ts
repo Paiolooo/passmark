@@ -2,8 +2,18 @@ import { describe, expect, it } from "vitest";
 import { type CountedItem, computeResult } from "./grades";
 import {
   type GpaCourse,
+  type PastCourse,
   type PastSemester,
+  classifyResult,
+  countsInGpa,
+  creditsCompleted,
   cumulativeGpa,
+  defaultCounts,
+  groupHistory,
+  historyRecord,
+  isPassed,
+  orderSemesters,
+  parseGradeOrResult,
   currentSemester,
   neededForCumulative,
   ordinal,
@@ -170,5 +180,159 @@ describe("semesters and parsing", () => {
 
   it("semester credits counts every course with credits", () => {
     expect(semesterCredits([course("A", 6, 8), course("B", 3, null), course("C", null, null)])).toBe(9);
+  });
+});
+
+// ─── History: past courses ────────────────────────────────────────────────
+
+let pos = 0;
+const past = (
+  name: string,
+  semester_label: string,
+  credits: number,
+  grade: number | null,
+  over: Partial<PastCourse> = {},
+): PastCourse => ({ name, semester_label, credits, grade, result_label: null, counts_in_gpa: true, position: pos++, ...over });
+
+describe("history: credit weighting", () => {
+  it("each semester and the whole history are credit-weighted", () => {
+    const history = groupHistory(
+      [past("Microeconomics", "2023-24 · Semester 1", 6, 8), past("Law", "2023-24 · Semester 1", 3, 5)],
+      [],
+    );
+    // (6 × 8 + 3 × 5) / 9 = 7
+    expect(history[0].gpa).toBeCloseTo(7, 9);
+    expect(historyRecord(history)).toEqual({ points: 63, credits: 9, source: "history" });
+  });
+
+  it("a typed semester GPA counts when that semester has no counted courses", () => {
+    const summaries: PastSemester[] = [{ label: "2022-23 · Semester 2", gpa: 6, credits: 30 }];
+    const history = groupHistory([past("Statistics", "2023-24 · Semester 1", 6, 9)], summaries);
+    expect(history.map((h) => h.label)).toEqual(["2022-23 · Semester 2", "2023-24 · Semester 1"]);
+    // (30 × 6 + 6 × 9) / 36 = 6.5
+    const record = historyRecord(history)!;
+    expect(record.points / record.credits).toBeCloseTo(6.5, 9);
+  });
+
+  it("courses replace a typed GPA for the same semester, so nothing counts twice", () => {
+    const history = groupHistory(
+      [past("Statistics", "Year 1 · Semester 1", 6, 9)],
+      [{ label: "Year 1 · Semester 1", gpa: 5, credits: 30 }],
+    );
+    expect(history[0].summaryReplaced).toBe(true);
+    expect(history[0].gpa).toBe(9);
+    expect(historyRecord(history)?.credits).toBe(6);
+  });
+
+  it("combines with this semester's finished courses in the cumulative GPA", () => {
+    const record = historyRecord(groupHistory([past("A", "S1", 30, 6)], []));
+    const now = [course("B", 10, 10)];
+    // (30 × 6 + 10 × 10) / 40 = 7
+    expect(cumulativeGpa(record, currentSemester(now), now).gpa).toBeCloseTo(7, 9);
+  });
+});
+
+describe("history: results without a grade", () => {
+  it("classifies pass, recognized, honors and fail", () => {
+    expect(classifyResult("Apto")).toBe("pass");
+    expect(classifyResult("Pass")).toBe("pass");
+    expect(classifyResult("Convalidada")).toBe("recognized");
+    expect(classifyResult("Recognized")).toBe("recognized");
+    expect(classifyResult("Matrícula de Honor")).toBe("honors");
+    expect(classifyResult("No apto")).toBe("fail");
+    expect(classifyResult("Suspenso")).toBe("fail");
+    expect(classifyResult("No presentado")).toBe("fail");
+  });
+
+  it("never count in the GPA, even when switched on", () => {
+    const pass = past("Internship", "S2", 6, null, { result_label: "Pass" });
+    expect(countsInGpa(pass)).toBe(false);
+    const history = groupHistory([pass, past("Finance", "S2", 6, 7)], []);
+    expect(history[0].gpa).toBe(7);
+    expect(history[0].credits).toBe(6);
+  });
+
+  it("can be switched off: a graded course with counts_in_gpa false doesn't count", () => {
+    const history = groupHistory([past("Elective", "S2", 6, 4, { counts_in_gpa: false }), past("Finance", "S2", 6, 7)], []);
+    expect(history[0].gpa).toBe(7);
+  });
+
+  it("passing results still add to credits completed; fails don't", () => {
+    expect(isPassed(past("A", "S", 6, null, { result_label: "Recognized" }))).toBe(true);
+    expect(isPassed(past("A", "S", 6, null, { result_label: "No presentado" }))).toBe(false);
+    expect(isPassed(past("A", "S", 6, 4.9))).toBe(false);
+    expect(isPassed(past("A", "S", 6, 5))).toBe(true);
+    const history = groupHistory(
+      [past("Internship", "S1", 6, null, { result_label: "Pass" }), past("Finance", "S1", 6, 4), past("Law", "S1", 3, 8)],
+      [],
+    );
+    expect(creditsCompleted(history, [])).toBe(9);
+  });
+});
+
+describe("history: retakes", () => {
+  it("only the latest attempt counts by default", () => {
+    const rows = [
+      past("Calculus", "2022-23 · Semester 1", 6, 3.5),
+      past("Physics", "2022-23 · Semester 1", 6, 7),
+      past("Cálculus ", "2022-23 · Semester 2", 6, 6.2), // same course, accents and spaces aside
+    ];
+    expect(defaultCounts(rows)).toEqual([false, true, true]);
+  });
+
+  it("uses the semester order, not the row order", () => {
+    const rows = [past("Calculus", "2023-24 · Semester 1", 6, 6), past("Calculus", "2022-23 · Semester 2", 6, 3)];
+    expect(defaultCounts(rows)).toEqual([true, false]);
+  });
+
+  it("results without a grade default to not counting", () => {
+    expect(defaultCounts([past("Erasmus", "S1", 30, null, { result_label: "Convalidada" })])).toEqual([false]);
+  });
+
+  it("a retaken course adds its credits once to credits completed", () => {
+    const history = groupHistory([past("Calculus", "2022-23 · Semester 1", 6, 3), past("Calculus", "2022-23 · Semester 2", 6, 6)], []);
+    expect(creditsCompleted(history, [])).toBe(6);
+  });
+});
+
+describe("history: semester order and current semester", () => {
+  it("orders academic years, then semesters; unreadable labels keep their place at the end", () => {
+    expect(
+      orderSemesters(["2023-24 · Semester 2", "Exchange", "2023-24 · Semester 1", "2022/2023 2º semestre", "Year 1 · Semester 2"]),
+    ).toEqual(["Year 1 · Semester 2", "2022/2023 2º semestre", "2023-24 · Semester 1", "2023-24 · Semester 2", "Exchange"]);
+  });
+
+  it("credits completed includes this semester's passed courses from Courses", () => {
+    const now = [course("Passed", 6, 7), course("Failed", 6, 3), course("Open", 6, null)];
+    expect(creditsCompleted([], now)).toBe(6);
+  });
+});
+
+describe("target GPA with a history", () => {
+  const record = historyRecord(groupHistory([past("A", "S1", 60, 7)], []));
+
+  it("possible: the credit-weighted average needed on this semester's open courses", () => {
+    const now = [course("Done", 6, 8), course("Open", 24, null)];
+    // (7.5 × 90 − 60 × 7 − 6 × 8) / 24 = 8.625 → 8.7
+    expect(neededForCumulative(7.5, record, now)).toEqual({ status: "needed", needed: 8.7, credits: 24 });
+  });
+
+  it("impossible: more than 10 needed this semester", () => {
+    const now = [course("Open", 6, null)];
+    expect(neededForCumulative(9, record, now)).toMatchObject({ status: "unreachable" });
+  });
+});
+
+describe("parseGradeOrResult", () => {
+  it("reads grades with a comma or a dot, and words as results", () => {
+    expect(parseGradeOrResult("7,5")).toEqual({ ok: true, grade: 7.5, result_label: null });
+    expect(parseGradeOrResult(" 9 ")).toEqual({ ok: true, grade: 9, result_label: null });
+    expect(parseGradeOrResult("Convalidada")).toEqual({ ok: true, grade: null, result_label: "Convalidada" });
+  });
+
+  it("rejects empty text and numbers out of range", () => {
+    expect(parseGradeOrResult("").ok).toBe(false);
+    expect(parseGradeOrResult("11").ok).toBe(false);
+    expect(parseGradeOrResult("7.5.1").ok).toBe(false);
   });
 });

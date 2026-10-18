@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/client";
 import { COURSE_COLUMNS, type Course, toCourse } from "@/lib/courses";
 import { type Tone, computeCourse, summarize } from "@/lib/grades";
 import { CourseCard } from "./CourseCard";
-import { type GpaData, GpaPanel } from "./GpaPanel";
 import { SyllabusImport } from "./SyllabusImport";
 import { EmptyState, StatusPill, dangerButton, errorBox, fieldClass, primaryButton, secondaryButton } from "./ui";
 import { usePdfPicker } from "./usePdfPicker";
@@ -17,11 +16,9 @@ export type CourseUpdater = (id: string, update: (course: Course) => Course) => 
 export function CoursesApp({
   initialCourses,
   loadError,
-  gpa,
 }: {
   initialCourses: Course[];
   loadError: string | null;
-  gpa: GpaData;
 }) {
   const [courses, setCourses] = useState<Course[]>(initialCourses);
   const [name, setName] = useState("");
@@ -84,7 +81,6 @@ export function CoursesApp({
   };
 
   const hasCourses = courses.length > 0;
-  const gpaPanel = <GpaPanel courses={courses} data={gpa} />;
 
   return (
     <main className="mx-auto w-full max-w-[880px] flex-1 px-4 pb-24 pt-8 sm:px-6 sm:pt-12">
@@ -93,10 +89,7 @@ export function CoursesApp({
         {hasCourses && <SummaryPills summary={summary} />}
       </header>
 
-      {/* Dashboard first once there are courses; new users start with the add form. */}
-      {hasCourses && <div className="mt-8">{gpaPanel}</div>}
-
-      <section aria-labelledby="add-title" className={hasCourses ? "mt-12" : "mt-8"}>
+      <section aria-labelledby="add-title" className="mt-8">
         <h2 id="add-title" className="sr-only">
           Add a course
         </h2>
@@ -229,7 +222,6 @@ export function CoursesApp({
         )}
       </section>
 
-      {!hasCourses && <div className="mt-12">{gpaPanel}</div>}
     </main>
   );
 }
