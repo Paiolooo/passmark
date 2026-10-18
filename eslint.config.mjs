@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Reference script kept for PHASE 3, not part of the app.
     "reference/**",
+    // pdf.js worker copied from node_modules by scripts/copy-pdf-worker.mjs.
+    "public/pdf.worker.min.mjs",
   ]),
 ]);
 

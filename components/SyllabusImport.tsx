@@ -102,7 +102,9 @@ export function SyllabusImport({
         setRows(syllabus.rows.map(toDraft));
         setError(null);
         setState({ step: "preview", syllabus });
-      } catch {
+      } catch (err) {
+        // Keep the real cause in the console for debugging; users get a plain message.
+        console.error("PassMark: could not read the syllabus PDF", err);
         if (!cancelled) {
           setState({
             step: "failed",

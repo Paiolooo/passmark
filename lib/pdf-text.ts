@@ -11,13 +11,14 @@ export function checkPdfFile(file: File): string | null {
   return null;
 }
 
+/** Same version as pdfjs-dist: copied by scripts/copy-pdf-worker.mjs before every build. */
+export const PDF_WORKER_SRC = "/pdf.worker.min.mjs";
+
 export async function readPdfTextItems(file: File): Promise<TextItem[]> {
   // Loaded only when a PDF is chosen, so pdf.js never slows down the rest of the app.
-  const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    "pdfjs-dist/build/pdf.worker.min.mjs",
-    import.meta.url,
-  ).toString();
+  // The legacy build includes fallbacks (e.g. Promise.withResolvers) for Safari before 17.4.
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
 
   const data = new Uint8Array(await file.arrayBuffer());
   const doc = await pdfjs.getDocument({ data, verbosity: 0 }).promise;
