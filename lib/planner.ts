@@ -108,3 +108,49 @@ export function solvePlan(input: PlanInput, locks: Record<string, number>, targe
     passes: round1(projected) >= PASS_GRADE,
   };
 }
+
+// ─── Your choices ("locks"), oldest change first ──────────────────────────
+
+/** Rows you set yourself, in the order you last changed them (oldest first). */
+export type PlanLock = { key: string; value: number };
+
+/** Locks as a key → value map, for solvePlan. */
+export function lockValues(locks: PlanLock[]): Record<string, number> {
+  return Object.fromEntries(locks.map((l) => [l.key, l.value]));
+}
+
+/** Drops locks for rows that no longer exist (graded or removed since). */
+export function activeLocks(rows: PlanRow[], locks: PlanLock[]): PlanLock[] {
+  // With a single row there is nothing to choose: its value is simply what you need.
+  if (rows.length < 2) return [];
+  return locks.filter((l) => rows.some((r) => r.key === l.key));
+}
+
+/**
+ * You set `key` to `value`. It becomes your newest choice. There is always at least one auto
+ * row: if every row would be your choice, the one you set longest ago becomes auto again.
+ */
+export function setPlanValue(
+  rows: PlanRow[],
+  locks: PlanLock[],
+  key: string,
+  value: number,
+): { locks: PlanLock[]; released: string | null } {
+  if (rows.length < 2) return { locks: [], released: null };
+  const next = [...activeLocks(rows, locks).filter((l) => l.key !== key), { key, value }];
+  if (next.length >= rows.length) {
+    const [oldest, ...rest] = next;
+    return { locks: rest, released: oldest.key };
+  }
+  return { locks: next, released: null };
+}
+
+/** Makes `key` auto again. */
+export function unlockRow(locks: PlanLock[], key: string): PlanLock[] {
+  return locks.filter((l) => l.key !== key);
+}
+
+/** "Fit to target": keeps only your most recent choice; everything else becomes auto. */
+export function fitToTarget(locks: PlanLock[]): PlanLock[] {
+  return locks.slice(-1);
+}

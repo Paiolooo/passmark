@@ -57,7 +57,7 @@ export function CourseCard({
   const toggleRef = useRef<HTMLButtonElement>(null);
   const plannerRef = useRef<HTMLHeadingElement>(null);
   // Plans are what-ifs: kept in memory while the page is open, never saved.
-  const [planLocks, setPlanLocks] = useState<PlanLocks>({});
+  const [planLocks, setPlanLocks] = useState<PlanLocks>([]);
   const goToPlanner = useRef(false);
   const canPlan = useMemo(() => hasPlannableRows(course.assessments), [course.assessments]);
 

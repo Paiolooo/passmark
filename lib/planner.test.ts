@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { Assessment } from "./grades";
-import { planInput, solvePlan } from "./planner";
+import {
+  type PlanLock,
+  activeLocks,
+  fitToTarget,
+  lockValues,
+  planInput,
+  setPlanValue,
+  solvePlan,
+  unlockRow,
+} from "./planner";
 
 let seq = 0;
 const row = (over: Partial<Assessment>): Assessment => ({
@@ -112,5 +121,104 @@ describe("solvePlan", () => {
     );
     // (650 − 420) / 30 = 7.666… → 7.7
     expect(plan.values.A).toBe(7.7);
+  });
+});
+
+// ─── Locks: always at least one auto row ──────────────────────────────────
+
+describe("choices and auto rows", () => {
+  const three = planInput([
+    row({ name: "Participation", weight: 10, grade: 8 }),
+    row({ name: "Tests", weight: 20 }),
+    row({ name: "Project", weight: 20 }),
+    row({ name: "Final Exam", weight: 50, min_grade: 4 }),
+  ]);
+  const rows = three.rows;
+  const keys = (locks: PlanLock[]) => locks.map((l) => l.key);
+
+  it("a moved row becomes your newest choice", () => {
+    let { locks } = setPlanValue(rows, [], "Final Exam", 6);
+    ({ locks } = setPlanValue(rows, locks, "Tests", 8));
+    expect(keys(locks)).toEqual(["Final Exam", "Tests"]);
+    // Moving an existing choice again makes it the newest.
+    ({ locks } = setPlanValue(rows, locks, "Final Exam", 7));
+    expect(keys(locks)).toEqual(["Tests", "Final Exam"]);
+  });
+
+  it("touching every row releases the oldest choice, so one row stays auto", () => {
+    let { locks } = setPlanValue(rows, [], "Tests", 8);
+    ({ locks } = setPlanValue(rows, locks, "Final Exam", 6));
+    const last = setPlanValue(rows, locks, "Project", 9);
+    expect(last.released).toBe("Tests");
+    expect(keys(last.locks)).toEqual(["Final Exam", "Project"]);
+
+    const plan = solvePlan(three, lockValues(last.locks), 7);
+    // Tests is auto again and makes the plan reach the target: (700 − 80 − 300 − 180) / 20 = 7.0
+    expect(plan.values.Tests).toBe(7);
+    expect(plan.reachesTarget).toBe(true);
+  });
+
+  it("whatever order you touch rows in, an auto row is left and the target is reached when possible", () => {
+    const orders = [
+      ["Tests", "Project", "Final Exam", "Tests", "Final Exam", "Project"],
+      ["Final Exam", "Final Exam", "Project", "Tests", "Project"],
+      ["Project", "Tests", "Final Exam", "Project", "Tests", "Final Exam", "Tests"],
+    ];
+    for (const order of orders) {
+      let locks: PlanLock[] = [];
+      order.forEach((key, i) => {
+        ({ locks } = setPlanValue(rows, locks, key, 5 + (i % 4)));
+        expect(locks.length).toBeLessThan(rows.length);
+        expect(keys(locks).at(-1)).toBe(key);
+        const plan = solvePlan(three, lockValues(locks), 7);
+        if (plan.short.length === 0) {
+          expect(plan.reachesTarget).toBe(true);
+          expect(plan.projected).toBeGreaterThanOrEqual(7 - 1e-9);
+        }
+      });
+    }
+  });
+
+  it("dragging updates the auto rows live, one value at a time", () => {
+    let locks: PlanLock[] = [];
+    const seen: number[] = [];
+    for (const v of [5, 5.5, 6, 6.5, 7, 7.5]) {
+      ({ locks } = setPlanValue(rows, locks, "Final Exam", v));
+      seen.push(solvePlan(three, lockValues(locks), 7).values.Tests);
+    }
+    // Every step of the drag gives a new, lower value on the auto rows.
+    expect(seen).toEqual([...seen].sort((a, b) => b - a));
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(keys(locks)).toEqual(["Final Exam"]);
+  });
+
+  it("with a single ungraded row there are no choices: it is simply what you need", () => {
+    const single = planInput([row({ name: "Midterm", weight: 40, grade: 6 }), row({ name: "Final", weight: 60 })]);
+    const { locks, released } = setPlanValue(single.rows, [], "Final", 9);
+    expect(locks).toEqual([]);
+    expect(released).toBeNull();
+    expect(activeLocks(single.rows, [{ key: "Final", value: 9 }])).toEqual([]);
+    // (700 − 240) / 60 = 7.666… → 7.7
+    expect(solvePlan(single, {}, 7).values.Final).toBe(7.7);
+  });
+
+  it("Fit to target keeps your last change and makes the rest auto", () => {
+    let { locks } = setPlanValue(rows, [], "Tests", 9);
+    ({ locks } = setPlanValue(rows, locks, "Final Exam", 5));
+    expect(keys(fitToTarget(locks))).toEqual(["Final Exam"]);
+    expect(fitToTarget([])).toEqual([]);
+    const plan = solvePlan(three, lockValues(fitToTarget(locks)), 7);
+    expect(plan.reachesTarget).toBe(true);
+  });
+
+  it("tap to make auto removes one choice", () => {
+    const { locks } = setPlanValue(rows, [], "Tests", 9);
+    expect(unlockRow(locks, "Tests")).toEqual([]);
+  });
+
+  it("forgets choices for rows that were graded since", () => {
+    expect(activeLocks(rows, [{ key: "Old exam", value: 5 }, { key: "Tests", value: 6 }])).toEqual([
+      { key: "Tests", value: 6 },
+    ]);
   });
 });
