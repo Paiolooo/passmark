@@ -23,3 +23,5 @@ An automated bot grades this app on its public Vercel URL, acting like a strange
 - Row Level Security ON for every table, with policies based on `auth.uid()`. Nobody can read anything without logging in.
 - Only the Supabase URL and the publishable (anon) key may reach the browser. Never put the secret/service_role key or any AI API key in the frontend or in GitHub.
 - Keep keys in `.env.local` (listed in `.gitignore`) and in Vercel environment variables.
+
+For all UI work, follow DESIGN.md.

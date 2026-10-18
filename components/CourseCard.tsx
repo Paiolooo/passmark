@@ -1,12 +1,15 @@
 "use client";
 
+import { AlertTriangle, ArrowRight, Check, ChevronDown, FileUp, Plus, Trash2 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ASSESSMENT_COLUMNS, type Course, toAssessment } from "@/lib/courses";
 import {
   type Assessment,
   type CourseResult,
+  type Tone,
   computeCourse,
+  countedItems,
   formatGrade,
   formatWeight,
   parseTarget,
@@ -16,20 +19,25 @@ import { parseCredits } from "@/lib/gpa";
 import type { CourseUpdater } from "./CoursesApp";
 import { AddAssessmentForm, type NewAssessment } from "./AddAssessmentForm";
 import { AssessmentList } from "./AssessmentList";
-import { GradePlanner, type PlanState, hasPlannableRows } from "./GradePlanner";
+import { GradePlanner, type PlanState, hasPlannableRows, usePlanner } from "./GradePlanner";
 import type { EditorActions } from "./AssessmentEditor";
 import type { NewPart } from "./SplitForm";
 import { StatusBadge } from "./StatusBadge";
 import { SyllabusImport } from "./SyllabusImport";
 import {
-  dangerButton,
+  Card,
+  EmptyState,
+  Segmented,
+  WeightBar,
+  buttonClass,
   dangerFilledButton,
-  inputClass,
-  linkButton,
+  fieldClass,
   primaryButton,
   secondaryButton,
   sectionHeading,
 } from "./ui";
+import { AnimatedNumber } from "./ui/AnimatedNumber";
+import { GradeGauge } from "./ui/GradeGauge";
 import { usePdfPicker } from "./usePdfPicker";
 import { SaveIndicator, useSaver } from "./useSaver";
 
@@ -91,6 +99,8 @@ export function CourseCard({
     [course.assessments, course.target_grade],
   );
   const topLevel = course.assessments.filter((a) => a.parent_id === null);
+  const weightItems = useMemo(() => countedItems(course.assessments), [course.assessments]);
+  const planner = usePlanner(course.assessments, course.target_grade, plan);
 
   const supabase = () => createClient();
 
@@ -205,11 +215,23 @@ export function CourseCard({
   }
 
   const panelId = `${id}-panel`;
+  const credits = course.credits !== null ? `${formatWeight(course.credits)} ECTS` : null;
+
+  // The gauge follows your plan while there's something left to plan; otherwise the final grade.
+  const gauge: { value: number | null; tone: Tone; caption: string } = canPlan
+    ? {
+        value: planner.status.projected,
+        tone: planner.status.reachesTarget ? "good" : planner.status.passes ? "warn" : "bad",
+        caption: "Projected with your plan",
+      }
+    : { value: result.finalGrade, tone: result.tone, caption: result.finalGrade === null ? "No grade yet" : "Final grade" };
 
   return (
-    <li
+    <Card
+      as="li"
       data-testid="core-item"
-      className="rounded-2xl border border-gray-200 bg-white shadow-sm transition-shadow hover:border-gray-300 hover:shadow-md"
+      interactive={!open}
+      raised={open}
     >
       <h3>
         <button
@@ -218,105 +240,105 @@ export function CourseCard({
           aria-expanded={open}
           aria-controls={panelId}
           onClick={() => setOpen((v) => !v)}
-          className="flex w-full items-start gap-3 rounded-2xl p-4 text-left sm:p-5"
+          className="flex w-full items-start gap-3 rounded-[var(--radius-lg)] p-4 text-left sm:p-6"
         >
           <span className="min-w-0 flex-1">
-            <span className="wrap-anywhere block text-xl font-semibold leading-snug text-gray-900">
+            <span className="font-display wrap-anywhere block text-[1.625rem] leading-[1.15] text-ink">
               {course.name}
             </span>
-            {!open && (
-              <span className="mt-1.5 block text-base font-semibold leading-snug text-gray-900">
-                {result.headline}
-              </span>
-            )}
-            <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-700 tabular-nums">
-              Target {formatGrade(course.target_grade)}
-              {/* On phones the badge sits here so the name and result keep the full width. */}
+            <span className="num mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
+              {credits && (
+                <>
+                  <span>{credits}</span>
+                  <span aria-hidden="true" className="text-line-strong">/</span>
+                </>
+              )}
+              <span>Target {formatGrade(course.target_grade)}</span>
               {!open && (
-                <span className="sm:hidden">
+                <span className="ml-1">
                   <StatusBadge result={result} />
                 </span>
               )}
             </span>
-          </span>
-          <span className="flex shrink-0 items-center gap-2 pt-1">
             {!open && (
-              <span className="hidden sm:inline-flex">
-                <StatusBadge result={result} />
-              </span>
+              <span className="mt-3 block text-lg font-semibold leading-snug text-ink">{result.headline}</span>
             )}
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 20 20"
-              className={`h-5 w-5 text-gray-600 transition-transform ${open ? "rotate-180" : ""}`}
-              fill="currentColor"
-            >
-              <path d="M5.3 7.3a1 1 0 0 1 1.4 0L10 10.6l3.3-3.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 0 1 0-1.4z" />
-            </svg>
+          </span>
+          <span
+            aria-hidden="true"
+            className="-mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink-2 transition-colors duration-[var(--dur-fast)] hover:bg-sunken"
+          >
+            <ChevronDown size={20} className={`transition-transform duration-[var(--dur)] ${open ? "rotate-180" : ""}`} />
           </span>
         </button>
       </h3>
-      {!open && canPlan && (
-        <div className="-mt-3 px-4 pb-2 sm:px-5">
-          <button
-            type="button"
-            onClick={() => {
-              goToPlanner.current = true;
-              setOpen(true);
-            }}
-            className={linkButton}
-          >
-            Plan grades <span aria-hidden="true">→</span>
-            <span className="sr-only"> for {course.name}</span>
-          </button>
+      {!open && (weightItems.length > 0 || canPlan) && (
+        <div className="-mt-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 pb-3 sm:px-6 sm:pb-4">
+          <div className="min-w-[10rem] max-w-md flex-1">
+            <WeightBar items={weightItems} size="sm" />
+          </div>
+          {canPlan && (
+            <button
+              type="button"
+              onClick={() => {
+                goToPlanner.current = true;
+                setOpen(true);
+              }}
+              className={`${buttonClass("ghost")} -mr-2`}
+            >
+              Plan grades <ArrowRight aria-hidden="true" size={16} />
+              <span className="sr-only"> for {course.name}</span>
+            </button>
+          )}
         </div>
       )}
 
       {open && (
-        <div id={panelId} className="space-y-8 px-4 pb-5 sm:px-5">
-          <SaveIndicator status={status} />
-          <ResultPanel result={result} />
-          {canPlan && (
-            <GradePlanner
-              ref={plannerRef}
-              idPrefix={id}
-              assessments={course.assessments}
-              target={course.target_grade}
-              plan={plan}
-              onPlanChange={setPlan}
-              showTip={showPlannerTip}
-              onDismissTip={onDismissPlannerTip}
-            />
-          )}
-          <section aria-labelledby={`${id}-assessments`} className="space-y-3">
-            <h4 id={`${id}-assessments`} className={sectionHeading}>
-              Assessments
-            </h4>
-            {picker.input}
-            {picker.file ? (
-              <SyllabusImport
-                file={picker.file}
-                mode="fill"
-                courseId={course.id}
-                onSaved={(saved, warning) => {
-                  picker.clear();
-                  setImportWarning(warning);
-                  onUpdate(course.id, () => saved);
-                }}
-                onCancel={() => picker.clear()}
-                onChooseAnother={() => picker.open()}
-                onManual={() => {
-                  picker.clear();
-                  setAdding(true);
-                }}
+        <div id={panelId} className="expand-in">
+          <div className="space-y-10 border-t border-line px-4 pb-6 pt-5 sm:px-6">
+            <SaveIndicator status={status} />
+            <ResultPanel result={result} gauge={gauge} target={course.target_grade} weightItems={weightItems} />
+            {canPlan && (
+              <GradePlanner
+                ref={plannerRef}
+                idPrefix={id}
+                assessments={course.assessments}
+                target={course.target_grade}
+                plan={plan}
+                onPlanChange={setPlan}
+                showTip={showPlannerTip}
+                onDismissTip={onDismissPlannerTip}
               />
-            ) : topLevel.length === 0 ? (
-              !adding && (
-                <div className="rounded-xl border border-dashed border-gray-300 p-4">
-                  <p className="text-sm text-gray-700">
-                    No assessments yet. Import them from your syllabus PDF or add them by hand.
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
+            )}
+            <section aria-labelledby={`${id}-assessments`} className="space-y-3">
+              <h4 id={`${id}-assessments`} className={sectionHeading}>
+                Assessments
+              </h4>
+              {picker.input}
+              {picker.file ? (
+                <SyllabusImport
+                  file={picker.file}
+                  mode="fill"
+                  courseId={course.id}
+                  onSaved={(saved, warning) => {
+                    picker.clear();
+                    setImportWarning(warning);
+                    onUpdate(course.id, () => saved);
+                  }}
+                  onCancel={() => picker.clear()}
+                  onChooseAnother={() => picker.open()}
+                  onManual={() => {
+                    picker.clear();
+                    setAdding(true);
+                  }}
+                />
+              ) : topLevel.length === 0 ? (
+                !adding && (
+                  <EmptyState
+                    compact
+                    title="No assessments yet"
+                    text="Import them from your syllabus PDF or add them by hand."
+                  >
                     <button
                       type="button"
                       onClick={() => {
@@ -325,73 +347,81 @@ export function CourseCard({
                       }}
                       className={primaryButton}
                     >
+                      <FileUp aria-hidden="true" size={16} />
                       Import syllabus PDF
                     </button>
                     <button type="button" onClick={() => setAdding(true)} className={secondaryButton}>
                       Add manually
                     </button>
-                  </div>
-                </div>
-              )
-            ) : (
-              <AssessmentList
-                idPrefix={id}
-                assessments={course.assessments}
-                editingId={editingId}
-                onEdit={(assessmentId) => {
-                  setEditingId(assessmentId);
-                  if (assessmentId) setAdding(false);
-                }}
-                actions={editorActions}
-              />
-            )}
-            {topLevel.length > 0 && (
-              <p
-                className={`text-sm font-medium ${
-                  result.weightsOk ? "text-emerald-800" : "text-amber-900"
-                }`}
-              >
-                {!result.weightsOk && <span aria-hidden="true">⚠ </span>}
-                {weightsMessage(result.totalWeight)}
-              </p>
-            )}
-            {importWarning && (
-              <p role="alert" className="text-sm text-red-700">
-                {importWarning}
-              </p>
-            )}
-            {picker.file ? null : adding ? (
-              <AddAssessmentForm
-                onAdd={addAssessment}
-                onClose={() => {
-                  setAdding(false);
-                  requestAnimationFrame(() => document.getElementById(`${id}-add`)?.focus());
-                }}
-              />
-            ) : topLevel.length === 0 ? null : (
-              <button
-                type="button"
-                id={`${id}-add`}
-                onClick={() => {
-                  setEditingId(null);
-                  setAdding(true);
-                }}
-                className={linkButton}
-              >
-                + Add assessment
-              </button>
-            )}
-          </section>
+                  </EmptyState>
+                )
+              ) : (
+                <AssessmentList
+                  idPrefix={id}
+                  assessments={course.assessments}
+                  editingId={editingId}
+                  onEdit={(assessmentId) => {
+                    setEditingId(assessmentId);
+                    if (assessmentId) setAdding(false);
+                  }}
+                  actions={editorActions}
+                />
+              )}
+              {topLevel.length > 0 && (
+                <p
+                  className={`flex items-center gap-1.5 text-sm font-medium ${
+                    result.weightsOk ? "text-brand-ink" : "text-warn"
+                  }`}
+                >
+                  {result.weightsOk ? (
+                    <Check aria-hidden="true" size={16} strokeWidth={2.5} />
+                  ) : (
+                    <AlertTriangle aria-hidden="true" size={16} />
+                  )}
+                  {weightsMessage(result.totalWeight).replace(/\s*✓$/, "")}
+                </p>
+              )}
+              {importWarning && (
+                <p role="alert" className="text-sm text-bad">
+                  {importWarning}
+                </p>
+              )}
+              {picker.file ? null : adding ? (
+                <AddAssessmentForm
+                  onAdd={addAssessment}
+                  onClose={() => {
+                    setAdding(false);
+                    requestAnimationFrame(() => document.getElementById(`${id}-add`)?.focus());
+                  }}
+                />
+              ) : topLevel.length === 0 ? null : (
+                <button
+                  type="button"
+                  id={`${id}-add`}
+                  onClick={() => {
+                    setEditingId(null);
+                    setAdding(true);
+                  }}
+                  className={`${buttonClass("ghost")} -ml-3`}
+                >
+                  <Plus aria-hidden="true" size={16} />
+                  Add assessment
+                </button>
+              )}
+            </section>
 
-          <TargetPicker target={course.target_grade} onSave={setTarget} />
-          <CreditsField credits={course.credits} onSave={setCredits} />
+            <div className="grid gap-8 sm:grid-cols-[1fr_auto]">
+              <TargetPicker target={course.target_grade} onSave={setTarget} />
+              <CreditsField credits={course.credits} onSave={setCredits} />
+            </div>
 
-          <div className="border-t border-gray-100 pt-5">
-            <DeleteCourse name={course.name} onConfirm={deleteCourse} />
+            <div className="border-t border-line pt-5">
+              <DeleteCourse name={course.name} onConfirm={deleteCourse} />
+            </div>
           </div>
         </div>
       )}
-    </li>
+    </Card>
   );
 }
 
@@ -423,33 +453,22 @@ function TargetPicker({
 
   return (
     <fieldset>
-      <legend className={sectionHeading}>Target grade</legend>
-      <div className="mt-2 flex flex-wrap items-end gap-2">
-        {TARGETS.map((t) => {
-          const active = sameNumber(t.value, target);
-          return (
-            <button
-              key={t.label}
-              type="button"
-              aria-pressed={active}
-              onClick={() => {
-                setCustom("");
-                setError(null);
-                if (!active) onSave(t.value);
-              }}
-              className={`min-h-11 rounded-full border px-4 text-sm font-semibold ${
-                active
-                  ? "border-emerald-700 bg-emerald-700 text-white"
-                  : "border-gray-300 bg-white text-gray-800 hover:bg-gray-50"
-              }`}
-            >
-              {active && <span aria-hidden="true">✓ </span>}
-              {t.label}
-            </button>
-          );
-        })}
+      <legend id={`${id}-legend`} className={sectionHeading}>
+        Target grade
+      </legend>
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <Segmented
+          labelledBy={`${id}-legend`}
+          options={TARGETS}
+          isActive={(v) => sameNumber(v, target)}
+          onSelect={(v) => {
+            setCustom("");
+            setError(null);
+            if (!sameNumber(v, target)) onSave(v);
+          }}
+        />
         <div className="flex flex-col">
-          <label htmlFor={`${id}-custom`} className="text-xs font-medium text-gray-700">
+          <label htmlFor={`${id}-custom`} className="text-xs font-medium text-ink-2">
             Custom
           </label>
           <input
@@ -468,22 +487,22 @@ function TargetPicker({
             }}
             aria-invalid={error ? true : undefined}
             aria-describedby={`${id}-custom-error`}
-            className="min-h-11 w-24 rounded-lg border border-gray-400 px-3 text-base"
+            className={`${fieldClass} num mt-1 w-24`}
           />
         </div>
       </div>
       <div id={`${id}-custom-error`} aria-live="assertive">
-        {error && <p className="mt-1 text-sm text-red-700">{error}</p>}
+        {error && <p className="mt-1 text-sm text-bad">{error}</p>}
       </div>
     </fieldset>
   );
 }
 
 const TONE_TEXT: Record<CourseResult["tone"], string> = {
-  good: "text-emerald-800",
-  warn: "text-amber-900",
-  bad: "text-red-800",
-  neutral: "text-gray-900",
+  good: "text-brand-ink",
+  warn: "text-warn",
+  bad: "text-bad",
+  neutral: "text-ink",
 };
 
 /** Credits (ECTS) for the GPA: optional; saved when you leave the field. */
@@ -513,7 +532,7 @@ function CreditsField({
       <label htmlFor={`${id}-credits`} className={sectionHeading}>
         Credits (ECTS)
       </label>
-      <p id={`${id}-credits-hint`} className="text-sm text-gray-700">
+      <p id={`${id}-credits-hint`} className="mt-1 text-sm text-ink-2">
         Used for your GPA. Optional.
       </p>
       <input
@@ -532,10 +551,10 @@ function CreditsField({
         }}
         aria-invalid={error ? true : undefined}
         aria-describedby={`${id}-credits-hint${error ? ` ${id}-credits-error` : ""}`}
-        className={`${inputClass} w-28`}
+        className={`${fieldClass} num mt-1 w-28`}
       />
       {error && (
-        <p id={`${id}-credits-error`} role="alert" className="mt-1 text-sm text-red-700">
+        <p id={`${id}-credits-error`} role="alert" className="mt-1 text-sm text-bad">
           {error}
         </p>
       )}
@@ -543,7 +562,17 @@ function CreditsField({
   );
 }
 
-function ResultPanel({ result }: { result: CourseResult }) {
+function ResultPanel({
+  result,
+  gauge,
+  target,
+  weightItems,
+}: {
+  result: CourseResult;
+  gauge: { value: number | null; tone: Tone; caption: string };
+  target: number;
+  weightItems: { name: string; weight: number; grade: number | null }[];
+}) {
   const big =
     result.outcome === "needed"
       ? { value: result.needed!, label: "needed on what's left" }
@@ -552,30 +581,41 @@ function ResultPanel({ result }: { result: CourseResult }) {
         : null;
 
   return (
-    <section aria-label="Result" className="rounded-xl border border-gray-200 bg-gray-50 p-4 sm:p-5">
-      <div className="flex items-center justify-between gap-3">
-        <h4 className={sectionHeading}>Result</h4>
-        <StatusBadge result={result} />
+    <section
+      aria-label="Result"
+      className="grid items-center gap-6 rounded-[var(--radius-md)] bg-sunken p-4 sm:grid-cols-[minmax(0,240px)_1fr] sm:gap-8 sm:p-6"
+    >
+      <div className="flex justify-center">
+        <GradeGauge value={gauge.value} target={target} tone={gauge.tone} caption={gauge.caption} />
       </div>
-      {big && (
-        <p className="mt-3 flex items-baseline gap-2">
-          <span className={`text-5xl font-bold tracking-tight tabular-nums ${TONE_TEXT[result.tone]}`}>
-            {formatGrade(big.value)}
-          </span>
-          <span className="text-sm text-gray-700">{big.label}</span>
+      <div className="min-w-0">
+        <StatusBadge result={result} />
+        {big && (
+          <p className="mt-3 flex flex-wrap items-baseline gap-x-3">
+            <AnimatedNumber
+              value={big.value}
+              className={`text-[4rem] font-semibold leading-[0.9] tracking-[-0.04em] ${TONE_TEXT[result.tone]}`}
+            />
+            <span className="text-sm text-ink-2">{big.label}</span>
+          </p>
+        )}
+        <p aria-live="polite" className="mt-3 text-lg font-semibold leading-snug text-ink">
+          {result.headline}
         </p>
-      )}
-      <p aria-live="polite" className="mt-2 text-lg font-semibold text-gray-900">
-        {result.headline}
-      </p>
-      {result.details.map((d) => (
-        <p key={d} className="mt-1 text-gray-800">
-          {d}
-        </p>
-      ))}
-      {result.averageSoFar !== null && (
-        <p className="mt-3 text-sm text-gray-700">Average so far: {formatGrade(result.averageSoFar)}</p>
-      )}
+        {result.details.map((d) => (
+          <p key={d} className="mt-1 text-ink-2">
+            {d}
+          </p>
+        ))}
+        {result.averageSoFar !== null && (
+          <p className="num mt-3 text-sm text-ink-2">Average so far: {formatGrade(result.averageSoFar)}</p>
+        )}
+        {weightItems.length > 0 && (
+          <div className="mt-4 max-w-sm">
+            <WeightBar items={weightItems} />
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -586,19 +626,16 @@ function DeleteCourse({ name, onConfirm }: { name: string; onConfirm: () => Prom
 
   if (!confirming) {
     return (
-      <button
-        type="button"
-        onClick={() => setConfirming(true)}
-        className={dangerButton}
-      >
+      <button type="button" onClick={() => setConfirming(true)} className={`${buttonClass("ghost-danger")} -ml-3`}>
+        <Trash2 aria-hidden="true" size={16} />
         Delete course
       </button>
     );
   }
 
   return (
-    <div role="group" aria-label="Confirm delete" className="rounded-xl border border-red-200 bg-red-50 p-4">
-      <p className="wrap-anywhere text-sm text-red-900">
+    <div role="group" aria-label="Confirm delete" className="rounded-[var(--radius-md)] border border-bad-line bg-bad-tint p-4">
+      <p className="wrap-anywhere text-sm text-bad">
         Delete “{name}” and all its assessments? This can&apos;t be undone.
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
@@ -614,12 +651,7 @@ function DeleteCourse({ name, onConfirm }: { name: string; onConfirm: () => Prom
         >
           {pending ? "Deleting…" : "Yes, delete"}
         </button>
-        <button
-          type="button"
-          autoFocus
-          onClick={() => setConfirming(false)}
-          className={secondaryButton}
-        >
+        <button type="button" autoFocus onClick={() => setConfirming(false)} className={secondaryButton}>
           Cancel
         </button>
       </div>

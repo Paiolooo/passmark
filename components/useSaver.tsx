@@ -1,6 +1,9 @@
 "use client";
 
+import { CircleAlert } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
+import { errorBox } from "./ui";
+import { Toast } from "./ui/Toast";
 
 export type SaveStatus =
   | { kind: "idle" }
@@ -45,16 +48,17 @@ export function useSaver() {
   return { status, save };
 }
 
+/** "Saving…" / "Saved" as a toast; a failed save stays on screen as an inline alert. */
 export function SaveIndicator({ status }: { status: SaveStatus }) {
   return (
-    <p aria-live="polite" className="min-h-5 text-sm">
-      {status.kind === "saving" && <span className="text-gray-600">Saving…</span>}
-      {status.kind === "saved" && <span className="text-emerald-800">Saved ✓</span>}
+    <>
+      <Toast status={status} />
       {status.kind === "error" && (
-        <span role="alert" className="text-red-700">
+        <p role="alert" className={`${errorBox} flex items-start gap-2`}>
+          <CircleAlert aria-hidden="true" size={16} className="mt-0.5 shrink-0" />
           {status.message}
-        </span>
+        </p>
       )}
-    </p>
+    </>
   );
 }

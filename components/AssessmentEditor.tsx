@@ -10,7 +10,7 @@ import {
   parseWeight,
 } from "@/lib/grades";
 import { SplitForm, type NewPart } from "./SplitForm";
-import { dangerButton, dangerFilledButton, inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "./ui";
+import { dangerButton, dangerFilledButton, fieldClass, inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "./ui";
 
 export type EditorActions = {
   update: (id: string, patch: Partial<Assessment>) => Promise<boolean>;
@@ -104,7 +104,7 @@ export function AssessmentEditor({
     options: { autoFocus?: boolean; large?: boolean } = {},
   ) => (
     <div>
-      <label htmlFor={`${id}-${key}`} className={options.large ? "block text-sm font-semibold text-gray-900" : labelClass}>
+      <label htmlFor={`${id}-${key}`} className={options.large ? "block text-sm font-medium text-ink" : labelClass}>
         {label}
       </label>
       <input
@@ -118,10 +118,10 @@ export function AssessmentEditor({
         onChange={set(key)}
         aria-invalid={errors[key] ? true : undefined}
         aria-describedby={errors[key] ? `${id}-${key}-error` : undefined}
-        className={`${inputClass} ${options.large ? "text-lg font-semibold" : ""}`}
+        className={`num ${options.large ? `mt-1 ${fieldClass.replace("text-base", "text-lg font-semibold")}` : inputClass}`}
       />
       {errors[key] && (
-        <p id={`${id}-${key}-error`} role="alert" className="mt-1 text-xs text-red-700">
+        <p id={`${id}-${key}-error`} role="alert" className="mt-1 text-xs text-bad">
           {errors[key]}
         </p>
       )}
@@ -153,10 +153,10 @@ export function AssessmentEditor({
           onClose();
         }
       }}
-      className="space-y-3 border-t border-gray-100 bg-gray-50 px-3 pb-4 pt-3"
+      className="space-y-4 border-t border-line bg-sunken px-4 pb-5 pt-4"
     >
       {isParent ? (
-        <p className="text-sm text-gray-700">
+        <p className="text-sm text-ink-2">
           Grades are entered on the parts below. {a.name}&apos;s grade is calculated from them.
         </p>
       ) : (
@@ -176,9 +176,9 @@ export function AssessmentEditor({
               type="checkbox"
               checked={values.bestOfOn}
               onChange={set("bestOfOn")}
-              className="h-5 w-5 accent-emerald-700"
+              className="h-5 w-5 accent-[var(--brand)]"
             />
-            <label htmlFor={`${id}-best-on`} className="text-sm text-gray-900">
+            <label htmlFor={`${id}-best-on`} className="text-sm text-ink">
               Only the best K of {parts.length} count
             </label>
           </div>
@@ -200,7 +200,7 @@ export function AssessmentEditor({
             </div>
           )}
           {errors.best_of && (
-            <p id={`${id}-best_of-error`} role="alert" className="mt-1 text-xs text-red-700">
+            <p id={`${id}-best_of-error`} role="alert" className="mt-1 text-xs text-bad">
               {errors.best_of}
             </p>
           )}
@@ -214,8 +214,8 @@ export function AssessmentEditor({
       )}
 
       {confirmDelete ? (
-        <div role="group" aria-label="Confirm delete" className="rounded-lg border border-red-200 bg-red-50 p-3">
-          <p className="wrap-anywhere text-sm text-red-900">
+        <div role="group" aria-label="Confirm delete" className="rounded-[var(--radius-sm)] border border-bad-line bg-bad-tint p-3">
+          <p className="wrap-anywhere text-sm text-bad">
             Delete {a.name}
             {isParent ? ` and its ${parts.length} parts` : ""}?
           </p>

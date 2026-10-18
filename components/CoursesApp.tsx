@@ -1,13 +1,14 @@
 "use client";
 
+import { FileUp, Plus } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { COURSE_COLUMNS, type Course, toCourse } from "@/lib/courses";
-import { computeCourse, summarize } from "@/lib/grades";
+import { type Tone, computeCourse, summarize } from "@/lib/grades";
 import { CourseCard } from "./CourseCard";
 import { type GpaData, GpaPanel } from "./GpaPanel";
 import { SyllabusImport } from "./SyllabusImport";
-import { dangerButton, primaryButton, secondaryButton } from "./ui";
+import { EmptyState, StatusPill, dangerButton, errorBox, fieldClass, primaryButton, secondaryButton } from "./ui";
 import { usePdfPicker } from "./usePdfPicker";
 import { friendlyDbError } from "./useSaver";
 
@@ -84,73 +85,84 @@ export function CoursesApp({
     inputRef.current?.focus();
   };
 
+  const hasCourses = courses.length > 0;
+  const gpaPanel = <GpaPanel courses={courses} data={gpa} />;
+
   return (
-    <main className="mx-auto w-full max-w-[720px] flex-1 px-4 py-8 sm:px-6">
-      <header>
-        <h1 className="text-3xl font-bold tracking-tight text-gray-900">My courses</h1>
-        {courses.length > 0 && <SummaryPills summary={summary} />}
+    <main className="mx-auto w-full max-w-[880px] flex-1 px-4 pb-24 pt-8 sm:px-6 sm:pt-12">
+      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+        <h1 className="font-display text-[2.5rem] leading-none text-ink sm:text-[3rem]">My courses</h1>
+        {hasCourses && <SummaryPills summary={summary} />}
       </header>
 
-      <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-        <form onSubmit={addCourse} noValidate>
-          <label htmlFor="course-name" className="block text-sm font-semibold text-gray-900">
-            Course name
-          </label>
-          <div className="mt-1 flex flex-col gap-2 sm:flex-row">
-            <input
-              ref={inputRef}
-              id="course-name"
-              data-testid="core-input"
-              type="text"
-              name="course-name"
-              autoComplete="off"
-              placeholder="e.g. Corporate Finance"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                if (addError) setAddError(null);
-              }}
-              aria-invalid={addError ? true : undefined}
-              aria-describedby="add-course-error"
-              className="min-h-11 w-full flex-1 rounded-lg border border-gray-400 bg-white px-3 text-base text-gray-900"
-            />
-            <button
-              type="submit"
-              data-testid="core-submit"
-              disabled={adding}
-              aria-busy={adding}
-              className={`${primaryButton} shrink-0`}
-            >
-              {adding ? "Adding…" : "Add course"}
-            </button>
-          </div>
-          <div id="add-course-error" aria-live="assertive">
-            {addError && (
-              <p role="alert" className="mt-2 text-sm text-red-700">
-                {addError}
-              </p>
-            )}
-          </div>
-          <p aria-live="polite" className="sr-only">
-            {announcement}
-          </p>
-        </form>
+      {/* Dashboard first once there are courses; new users start with the add form. */}
+      {hasCourses && <div className="mt-8">{gpaPanel}</div>}
 
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="text-sm text-gray-700">Have the syllabus?</span>
-          <button
-            type="button"
-            onClick={() => {
-              setImportWarning(null);
-              picker.open();
-            }}
-            className={secondaryButton}
-          >
-            Import syllabus PDF
-          </button>
+      <section aria-labelledby="add-title" className={hasCourses ? "mt-12" : "mt-8"}>
+        <h2 id="add-title" className="sr-only">
+          Add a course
+        </h2>
+        <div>
+          <form onSubmit={addCourse} noValidate>
+            <label htmlFor="course-name" className="block text-sm font-medium text-ink">
+              Course name
+            </label>
+            <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
+              <input
+                ref={inputRef}
+                id="course-name"
+                data-testid="core-input"
+                type="text"
+                name="course-name"
+                autoComplete="off"
+                placeholder="e.g. Corporate Finance"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (addError) setAddError(null);
+                }}
+                aria-invalid={addError ? true : undefined}
+                aria-describedby="add-course-error"
+                className={`${fieldClass} flex-1`}
+              />
+              <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:flex">
+                <button
+                  type="submit"
+                  data-testid="core-submit"
+                  disabled={adding}
+                  aria-busy={adding}
+                  className={primaryButton}
+                >
+                  <Plus aria-hidden="true" size={16} strokeWidth={2.25} />
+                  {adding ? "Adding…" : "Add course"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImportWarning(null);
+                    picker.open();
+                  }}
+                  className={secondaryButton}
+                >
+                  <FileUp aria-hidden="true" size={16} />
+                  Import syllabus PDF
+                </button>
+              </div>
+            </div>
+            <div id="add-course-error" aria-live="assertive">
+              {addError && (
+                <p role="alert" className="mt-2 text-sm text-bad">
+                  {addError}
+                </p>
+              )}
+            </div>
+            <p aria-live="polite" className="sr-only">
+              {announcement}
+            </p>
+          </form>
           {picker.input}
         </div>
-      </div>
+      </section>
 
       {picker.file && (
         <div className="mt-4">
@@ -172,13 +184,13 @@ export function CoursesApp({
       )}
 
       {importWarning && (
-        <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+        <p role="alert" className={`${errorBox} mt-4`}>
           {importWarning}
         </p>
       )}
 
       {loadError && (
-        <div role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-red-900">
+        <div role="alert" className="mt-6 rounded-[var(--radius-md)] border border-bad-line bg-bad-tint p-4 text-bad">
           <p className="font-semibold">We couldn&apos;t load your courses.</p>
           <p className="mt-1 text-sm">{loadError}</p>
           <button
@@ -191,16 +203,21 @@ export function CoursesApp({
         </div>
       )}
 
-      <section aria-labelledby="courses-title" className="mt-8">
+      <section aria-labelledby="courses-title" className="mt-6">
         <h2 id="courses-title" className="sr-only">
           Your courses
         </h2>
         {courses.length === 0 && !loadError ? (
-          <p className="rounded-2xl border border-dashed border-gray-300 p-6 text-center text-gray-700">
-            Add your first course to see what you need to pass.
-          </p>
+          <EmptyState
+            title="Add your first course"
+            text="Type its name above, or import the syllabus PDF and we'll fill in the weights for you."
+          >
+            <button type="button" onClick={() => inputRef.current?.focus()} className={secondaryButton}>
+              Type a course name
+            </button>
+          </EmptyState>
         ) : (
-          <ul className="space-y-3">
+          <ul className="space-y-4">
             {courses.map((course) => (
               <CourseCard
                 key={course.id}
@@ -216,29 +233,27 @@ export function CoursesApp({
         )}
       </section>
 
-      <GpaPanel courses={courses} data={gpa} />
+      {!hasCourses && <div className="mt-12">{gpaPanel}</div>}
     </main>
   );
 }
 
-const PILL_TONES: [RegExp, string][] = [
-  [/at risk/, "border-amber-300 bg-amber-50 text-amber-900"],
-  [/not reachable|below minimum|not passed/, "border-red-300 bg-red-50 text-red-900"],
+const PILL_TONES: [RegExp, Tone][] = [
+  [/at risk/, "warn"],
+  [/not reachable|below minimum|not passed/, "bad"],
 ];
 
-/** "4 courses · 1 at risk" as small pills: text always says what the colour means. */
+/** "4 courses · 1 at risk": the count as text, problems as pills that say what the colour means. */
 function SummaryPills({ summary }: { summary: string }) {
+  const [count, ...rest] = summary.split(" · ");
   return (
-    <ul aria-label="Summary" className="mt-3 flex flex-wrap gap-2">
-      {summary.split(" · ").map((part) => {
-        const tone =
-          PILL_TONES.find(([re]) => re.test(part))?.[1] ?? "border-gray-300 bg-gray-50 text-gray-800";
-        return (
-          <li key={part} className={`rounded-full border px-3 py-1 text-sm font-medium tabular-nums ${tone}`}>
-            {part}
-          </li>
-        );
-      })}
+    <ul aria-label="Summary" className="num flex flex-wrap items-center gap-2 text-sm">
+      <li className="pr-1 text-ink-2">{count}</li>
+      {rest.map((part) => (
+        <li key={part}>
+          <StatusPill tone={PILL_TONES.find(([re]) => re.test(part))?.[1] ?? "neutral"}>{part}</StatusPill>
+        </li>
+      ))}
     </ul>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertTriangle, Plus } from "lucide-react";
 import {
   type Assessment,
   effectiveBestOf,
@@ -34,16 +35,16 @@ export function AssessmentList({
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-200">
+    <div className="overflow-hidden rounded-[var(--radius-md)] border border-line bg-surface">
       <div
         aria-hidden="true"
-        className="flex gap-3 border-b border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700"
+        className="flex gap-3 border-b border-line bg-sunken px-4 py-2 text-xs font-medium text-ink-2"
       >
         <span className="flex-1">Assessment</span>
         <span className="w-14 text-right">Weight</span>
-        <span className="w-20 text-right">Grade</span>
+        <span className="w-24 text-right">Grade</span>
       </div>
-      <ul className="divide-y divide-gray-100">
+      <ul className="divide-y divide-line">
         {groups.map(({ assessment: a, parts }) => {
           const bestOf = effectiveBestOf(a, parts);
           const partsCheck = partsWeightCheck(a, parts);
@@ -66,7 +67,7 @@ export function AssessmentList({
                 />
               )}
               {parts.length > 0 && (
-                <ul className="mb-2 ml-4 border-l-2 border-gray-200">
+                <ul className="mb-2 ml-5 border-l-2 border-line">
                   {parts.map((p) => (
                     <li key={p.id}>
                       <Row
@@ -89,8 +90,8 @@ export function AssessmentList({
                     </li>
                   ))}
                   {bestOf === null && !partsCheck.ok && (
-                    <li className="px-3 py-2 text-sm text-amber-900">
-                      <span aria-hidden="true">⚠ </span>
+                    <li className="px-3 py-2 text-sm text-warn">
+                      <AlertTriangle aria-hidden="true" size={14} className="mr-1 inline -translate-y-px" />
                       Parts add up to {formatWeight(partsCheck.total)}%, but {a.name} is{" "}
                       {formatWeight(a.weight)}%.
                     </li>
@@ -132,17 +133,22 @@ function Row({
   if (calculated) {
     gradeText =
       calculated.grade === null ? (
-        <span className="text-gray-600">—</span>
+        <span className="text-ink-3">–</span>
       ) : (
-        <span className="font-semibold text-gray-900">
+        <span className="font-semibold text-ink">
           {formatGrade(calculated.grade)}
-          {!calculated.complete && <span className="block text-xs font-normal text-gray-600">so far</span>}
+          {!calculated.complete && <span className="block text-xs font-normal text-ink-3">so far</span>}
         </span>
       );
   } else if (a.grade === null) {
-    gradeText = <span className="text-sm font-medium text-emerald-700">Add grade</span>;
+    gradeText = (
+      <span className="inline-flex items-center gap-1 text-sm font-semibold text-brand-ink">
+        <Plus aria-hidden="true" size={14} strokeWidth={2.5} />
+        Add grade
+      </span>
+    );
   } else {
-    gradeText = <span className="font-semibold text-gray-900">{formatGrade(a.grade)}</span>;
+    gradeText = <span className="font-semibold text-ink">{formatGrade(a.grade)}</span>;
   }
 
   return (
@@ -151,17 +157,17 @@ function Row({
       id={id}
       aria-expanded={open}
       onClick={onToggle}
-      className={`flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 ${
-        open ? "bg-gray-50" : ""
+      className={`flex min-h-12 w-full items-center gap-3 px-4 py-2.5 text-left transition-colors duration-[var(--dur-fast)] hover:bg-sunken ${
+        open ? "bg-sunken" : ""
       }`}
     >
       <span className="min-w-0 flex-1">
-        <span className="wrap-anywhere block text-gray-900">{a.name}</span>
+        <span className="wrap-anywhere block font-medium text-ink">{a.name}</span>
         {notes.length > 0 && (
-          <span className="block text-xs text-gray-600">{notes.join(" · ")}</span>
+          <span className="block text-xs text-ink-3">{notes.join(" · ")}</span>
         )}
       </span>
-      <span className="w-14 shrink-0 text-right text-sm text-gray-700 tabular-nums">
+      <span className="w-14 shrink-0 text-right text-sm text-ink-2 num">
         {!hideWeight && (
           <>
             <span className="sr-only">weight </span>
@@ -169,7 +175,7 @@ function Row({
           </>
         )}
       </span>
-      <span className="w-20 shrink-0 text-right tabular-nums">
+      <span className="num w-24 shrink-0 text-right">
         <span className="sr-only">{isParent ? "calculated grade " : "grade "}</span>
         {gradeText}
       </span>

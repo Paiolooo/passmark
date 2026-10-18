@@ -33,7 +33,7 @@ export function GpaChart({ points }: { points: GpaPoint[] }) {
 
   return (
     <figure className="m-0">
-      <figcaption className="text-sm font-semibold text-gray-900">GPA per semester</figcaption>
+      <figcaption className="text-sm font-semibold text-ink">GPA per semester</figcaption>
       <div className="mt-2 overflow-x-auto">
         <svg
           viewBox={`0 0 ${W} ${H}`}
@@ -43,20 +43,20 @@ export function GpaChart({ points }: { points: GpaPoint[] }) {
         >
           {ticks.map((t) => (
             <g key={t}>
-              <line x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)} stroke="#e5e7eb" strokeWidth="1" />
-              <text x={PAD.left - 8} y={y(t)} textAnchor="end" dominantBaseline="middle" fontSize="12" fill="#4b5563">
+              <line x1={PAD.left} x2={W - PAD.right} y1={y(t)} y2={y(t)} stroke="var(--line)" strokeWidth="1" />
+              <text x={PAD.left - 8} y={y(t)} textAnchor="end" dominantBaseline="middle" fontSize="12" fill="var(--ink-2)">
                 {t}
               </text>
             </g>
           ))}
           {points.map((p, i) => (
-            <text key={p.label} x={x(i)} y={H - 10} textAnchor="middle" fontSize="12" fill="#4b5563">
+            <text key={p.label} x={x(i)} y={H - 10} textAnchor="middle" fontSize="12" fill="var(--ink-2)">
               {i === points.length - 1 ? "Now" : `S${i + 1}`}
             </text>
           ))}
-          <path d={solidPath} fill="none" stroke="#047857" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+          <path d={solidPath} fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
           {projectedPath && (
-            <path d={projectedPath} fill="none" stroke="#047857" strokeWidth="2" strokeDasharray="5 4" strokeLinecap="round" />
+            <path d={projectedPath} fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeDasharray="5 4" strokeLinecap="round" />
           )}
           {points.map((p, i) => (
             <circle
@@ -64,15 +64,15 @@ export function GpaChart({ points }: { points: GpaPoint[] }) {
               cx={x(i)}
               cy={y(p.gpa)}
               r="5"
-              fill={p.projected ? "#ffffff" : "#047857"}
-              stroke={p.projected ? "#047857" : "#ffffff"}
+              fill={p.projected ? "var(--surface)" : "var(--brand)"}
+              stroke={p.projected ? "var(--brand)" : "var(--surface)"}
               strokeWidth="2"
             >
               <title>{`${p.label}${p.projected ? " (projected)" : ""}: ${formatGrade(p.gpa)}`}</title>
             </circle>
           ))}
           {/* Value at the end of the line only. */}
-          <text x={x(points.length - 1) + 10} y={y(last.gpa)} dominantBaseline="middle" fontSize="13" fontWeight="600" fill="#111827">
+          <text x={x(points.length - 1) + 10} y={y(last.gpa)} dominantBaseline="middle" fontSize="13" fontWeight="600" fill="var(--ink)">
             {formatGrade(last.gpa)}
           </text>
         </svg>
@@ -80,7 +80,7 @@ export function GpaChart({ points }: { points: GpaPoint[] }) {
       <table className="mt-3 w-full text-left text-sm">
         <caption className="sr-only">GPA per semester</caption>
         <thead>
-          <tr className="border-b border-gray-200 text-xs text-gray-700">
+          <tr className="border-b border-line text-xs text-ink-2">
             <th scope="col" className="py-1.5 pr-2 font-medium">Semester</th>
             <th scope="col" className="py-1.5 pr-2 text-right font-medium">GPA</th>
             <th scope="col" className="py-1.5 text-right font-medium">Credits</th>
@@ -88,14 +88,14 @@ export function GpaChart({ points }: { points: GpaPoint[] }) {
         </thead>
         <tbody>
           {points.map((p, i) => (
-            <tr key={p.label} className="border-b border-gray-100 last:border-0">
-              <th scope="row" className="py-1.5 pr-2 font-normal text-gray-900">
-                <span className="text-gray-700">{i === points.length - 1 ? "Now" : `S${i + 1}`} · </span>
+            <tr key={p.label} className="border-b border-line last:border-0">
+              <th scope="row" className="py-1.5 pr-2 font-normal text-ink">
+                <span className="text-ink-2">{i === points.length - 1 ? "Now" : `S${i + 1}`} · </span>
                 {p.label}
-                {p.projected && <span className="text-gray-700"> (projected)</span>}
+                {p.projected && <span className="text-ink-2"> (projected)</span>}
               </th>
-              <td className="py-1.5 pr-2 text-right font-semibold tabular-nums">{formatGrade(p.gpa)}</td>
-              <td className="py-1.5 text-right text-gray-700 tabular-nums">
+              <td className="num py-1.5 pr-2 text-right font-semibold text-ink">{formatGrade(p.gpa)}</td>
+              <td className="py-1.5 num text-right text-ink-2">
                 {p.credits === null ? "—" : formatWeight(p.credits)}
               </td>
             </tr>

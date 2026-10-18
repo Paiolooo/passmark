@@ -1,5 +1,6 @@
 "use client";
 
+import { Check, ChevronDown, Plus, X } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -26,7 +27,8 @@ import {
 } from "@/lib/gpa";
 import { computeCourse, formatGrade, formatWeight } from "@/lib/grades";
 import { GpaChart, type GpaPoint } from "./GpaChart";
-import { inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "./ui";
+import { Card, buttonClass, inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "./ui";
+import { AnimatedNumber } from "./ui/AnimatedNumber";
 import { friendlyDbError } from "./useSaver";
 
 export type GpaData = {
@@ -43,6 +45,7 @@ export function GpaPanel({ courses, data }: { courses: Course[]; data: GpaData }
   const [semesters, setSemesters] = useState<PastSemesterRow[]>(data.pastSemesters);
   const [editing, setEditing] = useState(false);
   const [targetText, setTargetText] = useState("");
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const gpaCourses: GpaCourse[] = useMemo(
     () =>
@@ -77,132 +80,163 @@ export function GpaPanel({ courses, data }: { courses: Course[]; data: GpaData }
         ]
       : [];
 
+  const tile = "flex flex-col px-3 first:pl-0 last:pr-0 sm:px-6";
+  const bigNumber = "text-[1.75rem] font-semibold leading-none tracking-[-0.03em] text-ink sm:text-[2.5rem]";
+
   return (
-    <section aria-labelledby={`${id}-title`} className="mt-10 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-      <h2 id={`${id}-title`} className="text-xl font-semibold text-gray-900">
-        Your GPA
-      </h2>
+    <Card as="section" aria-labelledby={`${id}-title`} className="p-5 sm:p-7">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 id={`${id}-title`} className="font-display text-[1.75rem] leading-tight text-ink">
+          Your GPA
+        </h2>
+        {nth !== null && <p className="text-sm text-ink-2">Your {ordinal(nth)} semester</p>}
+      </div>
 
-      <div className="mt-4 space-y-6">
-        <dl className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-            <dt className="text-sm text-gray-700">Cumulative GPA</dt>
-            <dd className="mt-1">
-              {cumulative.gpa !== null ? (
-                <span className="text-4xl font-bold tracking-tight text-gray-900 tabular-nums">
-                  <span className="sr-only">Cumulative GPA: </span>
-                  {formatGrade(cumulative.gpa)}
-                </span>
-              ) : (
-                <span className="text-sm text-gray-700">
-                  Add your past semesters or finish a course with credits to see it.
-                </span>
-              )}
-            </dd>
-            {cumulative.gpa !== null && !hasPast && (
-              <p className="mt-1 text-xs text-gray-700">This semester only, until you add past semesters.</p>
+      <dl className="mt-5 grid grid-cols-3 divide-x divide-line">
+        <div className={tile}>
+          <dt className="text-sm text-ink-2">Cumulative GPA</dt>
+          <dd className="mt-2">
+            {cumulative.gpa !== null ? (
+              <AnimatedNumber value={cumulative.gpa} className={bigNumber} />
+            ) : (
+              <span className="text-sm text-ink-2">
+                Add your past semesters or finish a course with credits to see it.
+              </span>
             )}
-          </div>
-          <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-            <dt className="text-sm text-gray-700">This semester</dt>
-            <dd className="mt-1">
-              {current.gpa !== null ? (
-                <span className="text-4xl font-bold tracking-tight text-gray-900 tabular-nums">
-                  <span className="sr-only">This semester: </span>
-                  {formatGrade(current.gpa)}
-                </span>
-              ) : (
-                <span className="text-sm text-gray-700">No finished courses with credits yet.</span>
-              )}
-            </dd>
-            {nth !== null && <p className="mt-1 text-xs text-gray-700">Your {ordinal(nth)} semester</p>}
-          </div>
-        </dl>
-
-        <div className="space-y-1 text-gray-900">
+          </dd>
+          {cumulative.gpa !== null && !hasPast && (
+            <dd className="mt-2 text-xs text-ink-3">This semester only, until you add past semesters.</dd>
+          )}
           {cumulative.semesterShare !== null && hasPast && (
-            <p>This semester weighs {Math.round(cumulative.semesterShare * 100)}% of your degree so far.</p>
-          )}
-          {projectedCumulative.gpa !== null && projected.counted.length > 0 && (
-            <p className="font-semibold">
-              If you hit your targets, your {hasPast ? "cumulative " : ""}GPA will be{" "}
-              {formatGrade(projectedCumulative.gpa)}.
-            </p>
-          )}
-          {current.excluded.length > 0 && (
-            <p className="text-sm text-gray-700">
-              Not counted yet:{" "}
-              {current.excluded.map((e, i) => (
-                <span key={e.name}>
-                  {i > 0 && "; "}
-                  <span className="wrap-anywhere">{e.name}</span> ({e.reason})
-                </span>
-              ))}
-              .
-            </p>
+            <dd className="mt-2 text-xs text-ink-3">
+              This semester weighs {Math.round(cumulative.semesterShare * 100)}% of your degree so far.
+            </dd>
           )}
         </div>
-
-        <div>
-          <label htmlFor={`${id}-target`} className="block text-sm font-semibold text-gray-900">
-            I want a cumulative GPA of
-          </label>
-          <input
-            id={`${id}-target`}
-            type="text"
-            inputMode="decimal"
-            placeholder="e.g. 7,5"
-            value={targetText}
-            onChange={(e) => setTargetText(e.target.value)}
-            aria-describedby={`${id}-target-result`}
-            className={`${inputClass} max-w-32`}
-          />
-          <div id={`${id}-target-result`} aria-live="polite" className="mt-2 text-sm">
-            {targetText.trim() !== "" && targetValue === null && (
-              <p className="text-red-700">Use a number from 0 to 10, e.g. 7,5.</p>
+        <div className={tile}>
+          <dt className="text-sm text-ink-2">This semester</dt>
+          <dd className="mt-2">
+            {current.gpa !== null ? (
+              <AnimatedNumber value={current.gpa} className={bigNumber} />
+            ) : (
+              <span className="text-sm text-ink-2">No finished courses with credits yet.</span>
             )}
-            {target && <TargetLine target={target} goal={targetValue as number} />}
-          </div>
+          </dd>
         </div>
+        <div className={tile}>
+          <dt className="text-sm text-ink-2">If you hit your targets</dt>
+          <dd className="mt-2">
+            {projectedCumulative.gpa !== null && projected.counted.length > 0 ? (
+              <>
+                <AnimatedNumber value={projectedCumulative.gpa} className={`${bigNumber} text-brand-ink`} />
+              </>
+            ) : (
+              <span className="text-sm text-ink-2">Add credits to your courses to see it.</span>
+            )}
+          </dd>
+          {projectedCumulative.gpa !== null && projected.counted.length > 0 && (
+            <dd className="mt-2 text-xs text-ink-3">{hasPast ? "Cumulative GPA" : "GPA"} with every target met.</dd>
+          )}
+        </div>
+      </dl>
 
-        {chartPoints.length > 1 && <GpaChart points={chartPoints} />}
+      {current.excluded.length > 0 && (
+        <p className="mt-5 border-t border-line pt-4 text-sm text-ink-2">
+          Not counted yet:{" "}
+          {current.excluded.map((e, i) => (
+            <span key={e.name}>
+              {i > 0 && "; "}
+              <span className="wrap-anywhere">{e.name}</span> ({e.reason})
+            </span>
+          ))}
+          .
+        </p>
+      )}
 
-        {!data.available ? (
-          <p className="text-sm text-gray-700">Your past semesters can&apos;t be loaded right now.</p>
-        ) : editing ? (
-          <PastSemestersForm
-            profile={profile}
-            semesters={semesters}
-            onCancel={() => setEditing(false)}
-            onSaved={(p, s) => {
-              setProfile(p);
-              setSemesters(s);
-              setEditing(false);
-            }}
+      <div className="mt-5 border-t border-line pt-2">
+        <button
+          type="button"
+          aria-expanded={moreOpen}
+          aria-controls={`${id}-more`}
+          onClick={() => setMoreOpen((v) => !v)}
+          className={`${buttonClass("ghost")} -ml-3`}
+        >
+          GPA goal and past semesters
+          <ChevronDown
+            aria-hidden="true"
+            size={16}
+            className={`transition-transform duration-[var(--dur)] ${moreOpen ? "rotate-180" : ""}`}
           />
-        ) : (
-          <div className="rounded-xl border border-dashed border-gray-300 p-4">
-            <p className="font-semibold text-gray-900">
-              {hasPast ? "Your past semesters" : "Add your past semesters"}
-            </p>
-            <p className="mt-1 text-sm text-gray-700">
-              {past?.source === "semesters"
-                ? `${semesters.length} past semester${semesters.length === 1 ? "" : "s"}, ${formatWeight(past.credits)} credits.`
-                : past?.source === "summary"
-                  ? `GPA ${formatGrade(profile!.prior_gpa!)} over ${formatWeight(profile!.prior_credits!)} credits.`
-                  : "Optional. Add them to see your GPA across your whole degree."}
-            </p>
-            <button type="button" onClick={() => setEditing(true)} className={`${secondaryButton} mt-3`}>
-              {hasPast || nth !== null ? "Edit past semesters" : "Add past semesters"}
-            </button>
+        </button>
+
+        {moreOpen && (
+          <div id={`${id}-more`} className="expand-in">
+            <div className="space-y-8 pb-1 pt-4">
+              <div>
+                <label htmlFor={`${id}-target`} className="block text-sm font-medium text-ink">
+                  I want a cumulative GPA of
+                </label>
+                <input
+                  id={`${id}-target`}
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="e.g. 7,5"
+                  value={targetText}
+                  onChange={(e) => setTargetText(e.target.value)}
+                  aria-describedby={`${id}-target-result`}
+                  className={`${inputClass} num max-w-32`}
+                />
+                <div id={`${id}-target-result`} aria-live="polite" className="mt-2 text-sm">
+                  {targetText.trim() !== "" && targetValue === null && (
+                    <p className="text-bad">Use a number from 0 to 10, e.g. 7,5.</p>
+                  )}
+                  {target && <TargetLine target={target} goal={targetValue as number} />}
+                </div>
+              </div>
+
+              {chartPoints.length > 1 && <GpaChart points={chartPoints} />}
+
+              {!data.available ? (
+                <p className="text-sm text-ink-2">Your past semesters can&apos;t be loaded right now.</p>
+              ) : editing ? (
+                <PastSemestersForm
+                  profile={profile}
+                  semesters={semesters}
+                  onCancel={() => setEditing(false)}
+                  onSaved={(p, s) => {
+                    setProfile(p);
+                    setSemesters(s);
+                    setEditing(false);
+                  }}
+                />
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-md)] bg-sunken p-4">
+                  <div>
+                    <p className="font-medium text-ink">
+                      {hasPast ? "Your past semesters" : "Add your past semesters"}
+                    </p>
+                    <p className="num mt-0.5 text-sm text-ink-2">
+                      {past?.source === "semesters"
+                        ? `${semesters.length} past semester${semesters.length === 1 ? "" : "s"}, ${formatWeight(past.credits)} credits.`
+                        : past?.source === "summary"
+                          ? `GPA ${formatGrade(profile!.prior_gpa!)} over ${formatWeight(profile!.prior_credits!)} credits.`
+                          : "Optional. Add them to see your GPA across your whole degree."}
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => setEditing(true)} className={secondaryButton}>
+                    {hasPast || nth !== null ? "Edit past semesters" : "Add past semesters"}
+                  </button>
+                </div>
+              )}
+
+              <p className="text-xs text-ink-3">
+                Check that IE calculates your average the same way (credit-weighted) on your transcript.
+              </p>
+            </div>
           </div>
         )}
-
-        <p className="text-xs text-gray-700">
-          Check that IE calculates your average the same way (credit-weighted) on your transcript.
-        </p>
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -210,28 +244,28 @@ function TargetLine({ target, goal }: { target: ReturnType<typeof neededForCumul
   switch (target.status) {
     case "needed":
       return (
-        <p className="font-semibold text-gray-900">
+        <p className="font-semibold text-ink">
           You need an average of {formatGrade(target.needed)} this semester on your unfinished courses (
           {formatWeight(target.credits)} credits).
         </p>
       );
     case "unreachable":
       return (
-        <p className="font-semibold text-red-800">
-          <span aria-hidden="true">✗ </span>Not reachable this semester: it would need an average of{" "}
+        <p className="font-semibold text-bad">
+          <X aria-hidden="true" size={15} strokeWidth={2.5} className="mr-1 inline -translate-y-px" />Not reachable this semester: it would need an average of{" "}
           {formatGrade(target.needed)} on your unfinished courses.
         </p>
       );
     case "secured":
       return (
-        <p className="font-semibold text-emerald-800">
-          <span aria-hidden="true">✓ </span>Already secured: even 0 on your unfinished courses keeps your cumulative
+        <p className="font-semibold text-brand-ink">
+          <Check aria-hidden="true" size={15} strokeWidth={2.5} className="mr-1 inline -translate-y-px" />Already secured: even 0 on your unfinished courses keeps your cumulative
           GPA at {formatGrade(goal)} or above.
         </p>
       );
     case "nothing-left":
       return (
-        <p className="text-gray-700">
+        <p className="text-ink-2">
           No unfinished courses with credits this semester, so this semester can&apos;t change it any more.
         </p>
       );
@@ -346,16 +380,16 @@ function PastSemestersForm({
     setSaving(false);
   }
 
-  const select = "mt-1 block min-h-11 w-full rounded-lg border border-gray-400 bg-white px-3 text-base text-gray-900";
+  const select = inputClass;
 
   return (
-    <form onSubmit={save} noValidate aria-labelledby={`${id}-title`} className="space-y-4 rounded-xl border border-gray-200 p-4">
-      <h3 id={`${id}-title`} className="font-semibold text-gray-900">
+    <form onSubmit={save} noValidate aria-labelledby={`${id}-title`} className="space-y-5 rounded-[var(--radius-md)] border border-line bg-sunken/50 p-4 sm:p-5">
+      <h3 id={`${id}-title`} className="font-display text-xl text-ink">
         Add your past semesters
       </h3>
 
       <fieldset>
-        <legend className="text-sm font-semibold text-gray-900">Where are you now?</legend>
+        <legend className="text-sm font-semibold text-ink">Where are you now?</legend>
         <div className="mt-1 grid grid-cols-2 gap-2 sm:max-w-sm">
           <div>
             <label htmlFor={`${id}-year`} className={labelClass}>
@@ -385,14 +419,14 @@ function PastSemestersForm({
           </div>
         </div>
         {nth !== null && (
-          <p aria-live="polite" className="mt-2 text-sm text-gray-900">
+          <p aria-live="polite" className="mt-2 text-sm text-ink">
             This is your {ordinal(nth)} semester.
           </p>
         )}
       </fieldset>
 
       <fieldset>
-        <legend className="text-sm font-semibold text-gray-900">Your grades so far</legend>
+        <legend className="text-sm font-semibold text-ink">Your grades so far</legend>
         <div className="mt-1 flex flex-wrap gap-x-5">
           {(
             [
@@ -400,14 +434,14 @@ function PastSemestersForm({
               ["detailed", "Semester by semester"],
             ] as const
           ).map(([value, label]) => (
-            <label key={value} className="flex min-h-11 items-center gap-2 text-sm text-gray-900">
+            <label key={value} className="flex min-h-11 items-center gap-2 text-sm text-ink">
               <input
                 type="radio"
                 name={`${id}-mode`}
                 value={value}
                 checked={mode === value}
                 onChange={() => chooseMode(value)}
-                className="h-5 w-5 accent-emerald-700"
+                className="h-5 w-5 accent-[var(--brand)]"
               />
               {label}
             </label>
@@ -446,7 +480,7 @@ function PastSemestersForm({
             />
           </div>
           {semesters.length > 0 && (
-            <p className="col-span-2 text-xs text-gray-700">
+            <p className="col-span-2 text-xs text-ink-2">
               You also have semesters listed one by one; those are used when both exist.
             </p>
           )}
@@ -513,14 +547,15 @@ function PastSemestersForm({
             }
             className={linkButton}
           >
-            + Add a semester
+            <Plus aria-hidden="true" size={16} />
+            Add a semester
           </button>
         </div>
       )}
 
       <div aria-live="assertive">
         {error && (
-          <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          <p role="alert" className="rounded-[var(--radius-sm)] border border-bad-line bg-bad-tint px-3 py-2 text-sm text-bad">
             {error}
           </p>
         )}

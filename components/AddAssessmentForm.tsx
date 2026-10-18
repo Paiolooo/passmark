@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { parseGrade, parseMinGrade, parseWeight } from "@/lib/grades";
-import { inputClass, linkButton, secondaryButton } from "./ui";
+import { inputClass, labelClass, linkButton, primaryButton } from "./ui";
 
 const QUICK_NAMES = [
   "Participation",
@@ -74,7 +74,7 @@ export function AddAssessmentForm({
     options: { placeholder: string; decimal?: boolean; ref?: React.Ref<HTMLInputElement> },
   ) => (
     <div className={key === "name" ? "col-span-3" : undefined}>
-      <label htmlFor={`${id}-${key}`} className="block text-xs font-medium text-gray-700">
+      <label htmlFor={`${id}-${key}`} className={labelClass}>
         {label}
       </label>
       <input
@@ -92,7 +92,7 @@ export function AddAssessmentForm({
         className={inputClass}
       />
       {errors[key] && (
-        <p id={`${id}-${key}-error`} role="alert" className="mt-1 text-xs text-red-700">
+        <p id={`${id}-${key}-error`} role="alert" className="mt-1 text-xs text-bad">
           {errors[key]}
         </p>
       )}
@@ -110,13 +110,13 @@ export function AddAssessmentForm({
           onClose();
         }
       }}
-      className="rounded-xl border border-dashed border-gray-300 p-3"
+      className="rounded-[var(--radius-md)] border border-line bg-sunken p-4"
     >
-      <h4 id={`${id}-title`} className="font-semibold text-gray-900">
+      <h4 id={`${id}-title`} className="font-display text-xl text-ink">
         Add assessment
       </h4>
       <div className="mt-2">
-        <p id={`${id}-quick`} className="text-xs font-medium text-gray-700">
+        <p id={`${id}-quick`} className="text-xs font-medium text-ink-2">
           Quick add
         </p>
         <div role="group" aria-labelledby={`${id}-quick`} className="mt-1 flex flex-wrap gap-2">
@@ -129,7 +129,7 @@ export function AddAssessmentForm({
                 setErrors((e) => ({ ...e, name: undefined }));
                 weightRef.current?.focus();
               }}
-              className="min-h-11 rounded-full border border-gray-300 bg-white px-3 text-sm text-gray-800 hover:bg-gray-50"
+              className="min-h-11 rounded-full border border-line bg-surface px-3.5 text-sm text-ink transition-colors duration-[var(--dur-fast)] hover:border-line-strong"
             >
               {name}
             </button>
@@ -147,7 +147,7 @@ export function AddAssessmentForm({
           type="submit"
           disabled={pending}
           aria-busy={pending}
-          className={secondaryButton}
+          className={primaryButton}
         >
           {pending ? "Adding…" : "Add assessment"}
         </button>

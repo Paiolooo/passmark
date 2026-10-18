@@ -1,5 +1,6 @@
 "use client";
 
+import { Lightbulb, Lock, Pin, RotateCcw } from "lucide-react";
 import { forwardRef, useMemo, useState } from "react";
 import type { Assessment } from "@/lib/grades";
 import { PASS_GRADE, formatGrade, formatWeight, parseDecimal, roundUp1 } from "@/lib/grades";
@@ -14,7 +15,9 @@ import {
   planStatus,
   shiftToTarget,
 } from "@/lib/planner";
-import { secondaryButton } from "./ui";
+import { Slider, StatusPill, buttonClass, sectionHeading } from "./ui";
+import { AnimatedNumber } from "./ui/AnimatedNumber";
+import { NumberField } from "./ui/NumberField";
 
 /** A plan in progress. Never saved: kept in memory while the page is open. */
 export type PlanState = {
@@ -48,11 +51,8 @@ const basisOf = (input: PlanInput, target: number) =>
 /** Planned grades are shown rounded up, so a plan is never too optimistic. */
 const shown = (v: number) => formatGrade(roundUp1(v));
 
-/** "Plan your remaining grades": sliders for what-if grades. */
-export const GradePlanner = forwardRef<HTMLHeadingElement, Props>(function GradePlanner(
-  { idPrefix, assessments, target, plan, onPlanChange, showTip, onDismissTip },
-  headingRef,
-) {
+/** The plan as shown: values (fitted to the target), pinned rows and how it stands. */
+export function usePlanner(assessments: Assessment[], target: number, plan: PlanState | null) {
   const input = useMemo(() => planInput(assessments), [assessments]);
   const basis = basisOf(input, target);
   const single = input.rows.length === 1;
@@ -79,6 +79,15 @@ export const GradePlanner = forwardRef<HTMLHeadingElement, Props>(function Grade
   const moving = current?.moving ?? null;
   const fixed = moving ? [...pinned, moving] : pinned;
   const status = planStatus(input, values, fixed, target);
+  return { input, basis, single, pinned, values, moving, status };
+}
+
+/** "Plan your remaining grades": sliders for what-if grades. */
+export const GradePlanner = forwardRef<HTMLHeadingElement, Props>(function GradePlanner(
+  { idPrefix, assessments, target, plan, onPlanChange, showTip, onDismissTip },
+  headingRef,
+) {
+  const { input, basis, single, pinned, values, moving, status } = usePlanner(assessments, target, plan);
 
   const [flash, setFlash] = useState<{ keys: string[]; id: number }>({ keys: [], id: 0 });
   const [announcement, setAnnouncement] = useState("");
@@ -106,68 +115,65 @@ export const GradePlanner = forwardRef<HTMLHeadingElement, Props>(function Grade
   }
 
   return (
-    <section aria-labelledby={`${idPrefix}-plan`} className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
-      <h4
-        ref={headingRef}
-        tabIndex={-1}
-        id={`${idPrefix}-plan`}
-        className="text-lg font-semibold text-gray-900"
-      >
+    <section aria-labelledby={`${idPrefix}-plan`}>
+      <h4 ref={headingRef} tabIndex={-1} id={`${idPrefix}-plan`} className={`${sectionHeading} focus:outline-none`}>
         Plan your remaining grades
       </h4>
-      <p className="mt-1 text-sm text-gray-700">
+      <p className="mt-1 max-w-prose text-sm text-ink-2">
         {single
           ? "Only one assessment is left without a grade, so this is the grade it needs."
-          : "Move a slider to try a grade. The others adjust so you still reach your target."}
+          : "Move a slider to try a grade. The others adjust so you still reach your target."}{" "}
+        {input.list.some((item) => item.kind === "graded") && "Real grades are locked here; edit them in the assessment list."}
       </p>
 
       {showTip && !single && (
-        <div className="mt-3 flex items-start gap-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+        <div className="mt-3 flex items-start gap-3 rounded-[var(--radius-md)] border border-good-line bg-brand-tint p-3 text-sm text-ink">
+          <Lightbulb aria-hidden="true" size={18} className="mt-0.5 shrink-0 text-brand-ink" />
           <p className="flex-1">
-            <strong>Tip:</strong> try setting your Final Exam to the grade you think you&apos;ll get.
-            We&apos;ll show what you need on the rest.
+            <strong className="font-semibold">Tip:</strong> try setting your Final Exam to the grade you think
+            you&apos;ll get. We&apos;ll show what you need on the rest.
           </p>
           <button
             type="button"
             onClick={onDismissTip}
-            className="min-h-11 shrink-0 rounded-md px-2 font-semibold text-sky-900 underline underline-offset-4"
+            className="-my-2 min-h-11 shrink-0 rounded-md px-2 font-semibold text-brand-ink underline underline-offset-4 hover:no-underline"
           >
             Got it<span className="sr-only">, hide this tip</span>
           </button>
         </div>
       )}
 
-      <div
-        className={`mt-4 rounded-xl border-2 p-4 ${
-          status.reachesTarget
-            ? "border-emerald-300 bg-emerald-50 text-emerald-950"
-            : "border-amber-400 bg-amber-50 text-amber-950"
-        }`}
-      >
-        <p className="text-lg font-semibold">
-          Projected final grade:{" "}
-          <span className="text-3xl font-bold tracking-tight tabular-nums">{formatGrade(status.projected)}</span>{" "}
-          {status.reachesTarget ? (
-            <span className="whitespace-nowrap">✓ reaches your target</span>
-          ) : (
-            <span className="whitespace-nowrap">✗ below your {formatGrade(target)} target</span>
-          )}
-        </p>
-        <p className="mt-1 text-sm font-semibold">
-          {status.passes ? "Pass ✓" : `Below ${formatGrade(PASS_GRADE)}`}
-          {status.secured && " · Target secured."}
-        </p>
-        {status.unreachable && !moving && (
-          <p className="mt-1 text-sm font-semibold text-red-800">
-            Not reachable: lower a grade or your target.
+      {/* On phones this bar sticks to the top while you scroll the sliders. */}
+      <div className="sticky top-0 z-30 -mx-4 mt-4 border-b border-line bg-surface/95 px-4 py-2.5 backdrop-blur sm:static sm:mx-0 sm:rounded-[var(--radius-md)] sm:border sm:bg-sunken sm:px-4 sm:py-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <p className="flex items-baseline gap-2.5">
+            <span className="text-sm font-medium text-ink-2">Projected final grade</span>
+            <AnimatedNumber
+              value={status.projected}
+              className="text-[1.75rem] font-semibold leading-none tracking-[-0.03em] text-ink"
+            />
           </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {status.reachesTarget ? (
+              <StatusPill tone="good">Reaches your target</StatusPill>
+            ) : (
+              <StatusPill tone="warn">Below your {formatGrade(target)} target</StatusPill>
+            )}
+            <StatusPill tone={status.passes ? "good" : "bad"}>
+              {status.passes ? "Pass" : `Below ${formatGrade(PASS_GRADE)}`}
+            </StatusPill>
+          </div>
+        </div>
+        {status.secured && <p className="mt-1 text-sm font-medium text-brand-ink">Target secured.</p>}
+        {status.unreachable && !moving && (
+          <p className="mt-1 text-sm font-medium text-bad">Not reachable: lower a grade or your target.</p>
         )}
       </div>
       <p aria-live="polite" className="sr-only">
         {announcement}
       </p>
 
-      <ul className="mt-4 space-y-3">
+      <ul className="mt-2 divide-y divide-line">
         {input.list.map((item) => {
           if (item.kind === "graded") return <GradedRow key={item.id} item={item} />;
           const i = input.rows.findIndex((r) => r.key === item.key);
@@ -199,8 +205,9 @@ export const GradePlanner = forwardRef<HTMLHeadingElement, Props>(function Grade
             setAnnouncement("Plan reset: the same grade on every assessment.");
           }}
           disabled={plan === null}
-          className={`${secondaryButton} mt-4`}
+          className={`${buttonClass("secondary")} mt-3`}
         >
+          <RotateCcw aria-hidden="true" size={16} />
           Reset plan
         </button>
       )}
@@ -208,32 +215,42 @@ export const GradePlanner = forwardRef<HTMLHeadingElement, Props>(function Grade
   );
 });
 
-/** A real grade: fixed, shown as a solid bar and solid black text. Never moves. */
+/** Name and weight on one line; parts show their parent. */
+function RowName({ name, weight, parent, htmlFor }: { name: string; weight: number; parent: string | null; htmlFor?: string }) {
+  const Tag = htmlFor ? "label" : "span";
+  return (
+    <span className="min-w-0">
+      <Tag {...(htmlFor ? { htmlFor } : {})} className="wrap-anywhere font-medium text-ink">
+        {name} <span className="num font-normal text-ink-3">· {formatWeight(weight)}%</span>
+      </Tag>
+      {parent && <span className="block text-xs text-ink-3">part of {parent}</span>}
+    </span>
+  );
+}
+
+/** A real grade: fixed, solid and locked. Never moves. */
 function GradedRow({ item }: { item: Extract<PlanListItem, { kind: "graded" }> }) {
   return (
-    <li className={`rounded-xl border border-gray-300 bg-gray-50 p-3 ${item.parent ? "ml-4" : ""}`}>
-      <div className="sm:grid sm:grid-cols-[minmax(0,14rem)_1fr_auto] sm:items-center sm:gap-4">
-        <div>
-          <p className="wrap-anywhere font-medium text-gray-900">
-            {item.name} · {formatWeight(item.weight)}%
-          </p>
-          {item.parent && <p className="text-xs text-gray-700">part of {item.parent}</p>}
-          <p className="text-xs text-gray-700">Real grade · edit it in the assessment list</p>
-          {!item.counts && (
-            <p className="text-xs font-medium text-gray-800">Not counted: not among the best grades</p>
-          )}
+    <li className={`py-3 ${item.parent ? "ml-3 border-l-2 border-line pl-3" : ""}`}>
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-0.5">
+        <RowName name={item.name} weight={item.weight} parent={item.parent} />
+        <span className="flex items-center gap-1 text-xs font-medium text-ink-3">
+          <Lock aria-hidden="true" size={12} />
+          Real grade
+        </span>
+      </div>
+      {!item.counts && <p className="text-xs font-medium text-ink-2">Not counted: not among the best grades</p>}
+      <div className="mt-1 flex items-center gap-3">
+        <div aria-hidden="true" className="flex h-11 min-w-0 flex-1 items-center px-[13px]">
+          <div className="relative h-1 w-full rounded-full bg-line">
+            <div className="absolute inset-y-0 left-0 rounded-full bg-ink-3" style={{ width: `${item.grade * 10}%` }} />
+          </div>
         </div>
-        <div className="mt-1 flex items-center gap-3 sm:mt-0 sm:contents">
-          <div aria-hidden="true" className="flex h-11 min-w-0 flex-1 items-center">
-            <div
-              className="h-2 w-full rounded-full"
-              style={{ background: `linear-gradient(to right, #111827 ${item.grade * 10}%, #d1d5db ${item.grade * 10}%)` }}
-            />
-          </div>
-          <div className="w-20 shrink-0 px-1 py-1 text-center text-gray-900">
-            <span className="block text-[11px] font-semibold leading-none">Your grade</span>
-            <span className="block text-2xl font-bold leading-tight tabular-nums">{formatGrade(item.grade)}</span>
-          </div>
+        <div className="w-[4.75rem] shrink-0 rounded-[var(--radius-sm)] bg-sunken px-1 pt-1 text-center text-ink ring-1 ring-line">
+          <span className="block text-[11px] font-medium leading-none text-ink-2">Your grade</span>
+          <span className="num block h-11 text-[1.375rem] font-semibold leading-[2.75rem] tracking-tight">
+            {formatGrade(item.grade)}
+          </span>
         </div>
       </div>
     </li>
@@ -269,134 +286,79 @@ function PlanSlider({
 }) {
   const min = row.minGrade ?? 0;
   const text = shown(value);
-  // Thumb is 30px wide: keep the fill and the minimum marker aligned with its centre.
-  const at = (v: number) => `calc(15px + (100% - 30px) * ${v / 10})`;
   const red = short || unreachableHere;
+  const color = red ? "var(--bad)" : "var(--brand)";
 
   return (
-    <li
-      className={`relative overflow-hidden rounded-xl border p-3 ${parent ? "ml-4" : ""} ${
-        red ? "border-red-300 bg-red-50" : "border-gray-200 bg-white"
-      }`}
-    >
+    <li className={`relative py-3 ${parent ? "ml-3 border-l-2 border-line pl-3" : ""}`}>
       {flashId !== null && (
-        <span key={flashId} aria-hidden="true" className="plan-flash pointer-events-none absolute inset-0" />
+        <span key={flashId} aria-hidden="true" className="plan-flash pointer-events-none absolute inset-0 rounded-[var(--radius-sm)]" />
       )}
-      <div className="relative sm:grid sm:grid-cols-[minmax(0,14rem)_1fr_auto] sm:items-center sm:gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 sm:block">
-          {mode === "single" ? (
-            <span className="wrap-anywhere font-medium text-gray-900">
-              {row.name} · {formatWeight(row.weight)}%
-            </span>
-          ) : (
-            <label htmlFor={id} className="wrap-anywhere font-medium text-gray-900">
-              {row.name} · {formatWeight(row.weight)}%
-            </label>
+      <div className="relative flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <RowName name={row.name} weight={row.weight} parent={parent} htmlFor={mode === "single" ? undefined : id} />
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {row.minGrade !== null && <span className="num font-medium text-ink-2">min {formatGrade(row.minGrade)}</span>}
+          {mode === "single" && <span className="font-semibold text-brand-ink">This is what you need</span>}
+          {mode === "moving" && (
+            <span className="rounded-full bg-brand px-2.5 py-0.5 font-semibold text-on-brand">your choice</span>
           )}
-          {parent && <p className="text-xs text-gray-700">part of {parent}</p>}
-          <div className="flex flex-wrap items-center gap-2 sm:mt-1">
-            {row.minGrade !== null && (
-              <span className="text-xs font-medium text-gray-700">min {formatGrade(row.minGrade)}</span>
-            )}
-            {mode === "single" && (
-              <span className="text-xs font-semibold text-gray-700">This is what you need</span>
-            )}
-            {mode === "moving" && (
-              <span className="rounded-full bg-emerald-700 px-2.5 py-0.5 text-xs font-semibold text-white">
-                your choice
-              </span>
-            )}
-            {mode === "auto" && (
-              <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
-                adjusts automatically
-              </span>
-            )}
-            {mode !== "single" && (
-              <button
-                type="button"
-                onClick={onTogglePin}
-                aria-pressed={pinnedFlag}
-                className={`inline-flex min-h-11 items-center gap-1 rounded-full border px-3 text-xs font-semibold ${
-                  pinnedFlag
-                    ? "border-gray-700 bg-gray-800 text-white hover:bg-gray-700"
-                    : "border-gray-300 bg-white text-gray-800 hover:bg-gray-50"
-                }`}
-              >
-                <span aria-hidden="true">📌</span>
-                {pinnedFlag ? (
-                  <>
-                    Pinned <span className="font-normal">· tap to unpin</span>
-                  </>
-                ) : (
-                  "Pin this grade"
-                )}
-                <span className="sr-only">: {row.name}</span>
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="mt-1 flex items-center gap-3 sm:mt-0 sm:contents">
-          <div className="relative min-w-0 flex-1">
-            {mode === "single" ? (
-              // Read-only: the same track, without a handle to drag.
-              <div aria-hidden="true" className="flex h-11 items-center">
-                <div
-                  className="h-2 w-full rounded-full"
-                  style={{
-                    background: `linear-gradient(to right, ${red ? "#b91c1c" : "#047857"} ${value * 10}%, #d1d5db ${value * 10}%)`,
-                  }}
-                />
-              </div>
-            ) : (
-              <>
-                {row.minGrade !== null && (
-                  // Marker at the minimum; the track below it is drawn grey (see --min).
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute top-1/2 z-20 h-6 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded bg-gray-900"
-                    style={{ left: at(min) }}
-                  />
-                )}
-                <input
-                  id={id}
-                  type="range"
-                  min={0}
-                  max={10}
-                  step={0.1}
-                  value={value}
-                  // Never below the minimum: the slider stops at the marker.
-                  onChange={(e) => onMove(Math.max(min, Number(e.target.value)))}
-                  aria-valuetext={`${text} planned${red ? ", not reachable" : ""}${
-                    row.minGrade !== null ? `, minimum ${formatGrade(row.minGrade)}` : ""
-                  }`}
-                  className="plan-slider relative z-10 block"
-                  style={
-                    {
-                      "--fill": at(value),
-                      "--min": row.minGrade === null ? "0%" : at(min),
-                      "--fill-color": red ? "#b91c1c" : "#047857",
-                    } as React.CSSProperties
-                  }
-                />
-              </>
-            )}
-          </div>
-          <PlanValueBox
-            id={`${id}-value`}
-            label={mode === "single" ? "Need" : "Plan"}
-            rowName={row.name}
-            value={value}
-            readOnly={mode === "single"}
-            red={red}
-            onMove={onMove}
-          />
+          {mode === "auto" && <span className="text-ink-3">adjusts automatically</span>}
+          {mode !== "single" && (
+            <button
+              type="button"
+              onClick={onTogglePin}
+              aria-pressed={pinnedFlag}
+              className={`-my-1 inline-flex min-h-11 items-center gap-1 rounded-full px-3 font-semibold transition-colors duration-[var(--dur-fast)] ${
+                pinnedFlag ? "bg-ink text-paper hover:opacity-90" : "text-ink-2 hover:bg-sunken hover:text-ink"
+              }`}
+            >
+              <Pin aria-hidden="true" size={13} className={pinnedFlag ? "fill-current" : ""} />
+              {pinnedFlag ? (
+                <>
+                  Pinned <span className="font-normal opacity-80">· tap to unpin</span>
+                </>
+              ) : (
+                "Pin this grade"
+              )}
+              <span className="sr-only">: {row.name}</span>
+            </button>
+          )}
         </div>
       </div>
+
+      <div className="relative mt-1 flex items-center gap-3">
+        {mode === "single" ? (
+          // Read-only: the same track, without a handle to drag.
+          <div aria-hidden="true" className="flex h-11 min-w-0 flex-1 items-center px-[13px]">
+            <div className="relative h-1.5 w-full rounded-full bg-line">
+              <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${value * 10}%`, background: color }} />
+            </div>
+          </div>
+        ) : (
+          <Slider
+            id={id}
+            value={value}
+            min={row.minGrade}
+            color={color}
+            // Never below the minimum: the slider stops at the marker.
+            onChange={(e) => onMove(Math.max(min, Number(e.target.value)))}
+            aria-valuetext={`${text} planned${red ? ", not reachable" : ""}${
+              row.minGrade !== null ? `, minimum ${formatGrade(row.minGrade)}` : ""
+            }`}
+          />
+        )}
+        <PlanValueBox
+          id={`${id}-value`}
+          label={mode === "single" ? "Need" : "Plan"}
+          rowName={row.name}
+          value={value}
+          readOnly={mode === "single"}
+          red={red}
+          onMove={onMove}
+        />
+      </div>
       {unreachableHere && (
-        <p className="relative mt-2 text-sm font-medium text-red-800">
-          <span aria-hidden="true">✗ </span>Not reachable: lower this grade or your target.
-        </p>
+        <p className="relative mt-1 text-sm font-medium text-bad">Not reachable: lower this grade or your target.</p>
       )}
     </li>
   );
@@ -422,32 +384,25 @@ function PlanValueBox({
 }) {
   // While you type, keep your text; otherwise show the plan's value.
   const [draft, setDraft] = useState<string | null>(null);
-  const tone = red ? "border-red-400 text-red-800" : "border-gray-400 text-gray-700";
 
   return (
-    <div className={`w-20 shrink-0 rounded-lg border-2 border-dashed px-1 py-1 text-center ${tone}`}>
-      <label htmlFor={id} className="block text-[11px] font-semibold uppercase leading-none tracking-wide">
-        {label}
-        <span className="sr-only"> for {rowName}</span>
-      </label>
-      <input
-        id={id}
-        type="text"
-        inputMode="decimal"
-        readOnly={readOnly}
-        value={draft ?? shown(value)}
-        onFocus={(e) => e.currentTarget.select()}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          const v = parseDecimal(e.target.value);
-          if (v !== null && v <= 10) onMove(v);
-        }}
-        onBlur={() => setDraft(null)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-        }}
-        className="block h-11 w-full bg-transparent text-center text-2xl font-bold leading-tight tabular-nums outline-offset-2"
-      />
-    </div>
+    <NumberField
+      id={id}
+      label={label}
+      srLabel={` for ${rowName}`}
+      variant={red ? "alert" : "plan"}
+      readOnly={readOnly}
+      value={draft ?? shown(value)}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        const v = parseDecimal(e.target.value);
+        if (v !== null && v <= 10) onMove(v);
+      }}
+      onBlur={() => setDraft(null)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+    />
   );
 }

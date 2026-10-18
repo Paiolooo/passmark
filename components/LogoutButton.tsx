@@ -1,8 +1,8 @@
 "use client";
 
+import { LogOut } from "lucide-react";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { secondaryButton } from "./ui";
 
 export function LogoutButton() {
   const [pending, setPending] = useState(false);
@@ -32,12 +32,13 @@ export function LogoutButton() {
         onClick={logout}
         disabled={pending}
         aria-busy={pending}
-        className={secondaryButton}
+        className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-ink transition-colors duration-[var(--dur-fast)] hover:bg-sunken disabled:opacity-60"
       >
+        <LogOut aria-hidden="true" size={16} strokeWidth={2} />
         {pending ? "Logging out…" : "Log out"}
       </button>
       {error && (
-        <p role="alert" className="max-w-40 text-xs text-red-700">
+        <p role="alert" className="max-w-40 text-xs text-bad">
           {error}
         </p>
       )}

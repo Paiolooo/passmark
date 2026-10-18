@@ -1,184 +1,221 @@
+import { ChevronDown, FileText, LineChart, Lock, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
-import { StatusBadge } from "@/components/StatusBadge";
-import {
-  EXAMPLE_COURSE,
-  computeResult,
-  formatGrade,
-  formatWeight,
-} from "@/lib/grades";
+import { LandingDemo } from "@/components/LandingDemo";
+import { WeightBar, buttonClass } from "@/components/ui";
+import { EXAMPLE_COURSE } from "@/lib/grades";
 
-const STEPS = [
-  { title: "Add your course.", text: "Just type its name." },
-  { title: "Import your syllabus PDF or type the weights.", text: "Final exam, midterm, participation…" },
+const FEATURES = [
+  { icon: FileText, title: "Syllabus import", text: "Drop in the PDF. We read the evaluation table on your device." },
+  { icon: SlidersHorizontal, title: "Plan your grades", text: "Try a grade on one exam and see what the rest need." },
+  { icon: LineChart, title: "GPA tracking", text: "This semester, your whole degree, and what your targets add up to." },
+  { icon: Lock, title: "Private by design", text: "Your grades are tied to your account. Nobody else can read them." },
+];
+
+const FAQ = [
   {
-    title: "Add grades as they come in and see exactly what you need.",
-    text: "One clear number for what's left.",
+    q: "Is it free?",
+    a: "Yes. PassMark is free, with no ads and no premium plan. Sign up with an email and a password.",
+  },
+  {
+    q: "Who sees my grades?",
+    a: "Only you. Your courses and grades are stored with your account and protected so that no other user can read them. Syllabus PDFs are read in your browser and never uploaded.",
+  },
+  {
+    q: "Which courses work?",
+    a: "Any course graded from 0 to 10 with weighted assessments: exams, participation, projects, quizzes, even “best 4 of 5”. Syllabus import reads IE syllabus PDFs; for anything else you type the weights once.",
   },
 ];
 
-const icon = "h-6 w-6";
-const FEATURES = [
-  {
-    text: "Import your syllabus PDF",
-    icon: (
-      <svg className={icon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-        <path d="M14 3v5h5M12 17v-6M9.5 13.5 12 11l2.5 2.5" />
-      </svg>
-    ),
-  },
-  {
-    text: "Plan your grades with sliders",
-    icon: (
-      <svg className={icon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-        <path d="M4 7h16M4 17h16" />
-        <circle cx="9" cy="7" r="2.2" fill="white" />
-        <circle cx="15" cy="17" r="2.2" fill="white" />
-      </svg>
-    ),
-  },
-  {
-    text: "Private: only you see your data",
-    icon: (
-      <svg className={icon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="5" y="11" width="14" height="10" rx="2" />
-        <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-      </svg>
-    ),
-  },
+/* ─── Small product visuals for "How it works" ─────────────────────────── */
+
+function ImportVisual() {
+  const rows = [
+    ["Final exam", "35%"],
+    ["Midterm", "30%"],
+    ["Group project", "20%"],
+    ["Participation", "15%"],
+  ];
+  return (
+    <div aria-hidden="true" className="relative h-full p-4">
+      <div className="absolute left-4 top-4 h-[calc(100%-2rem)] w-[46%] rounded-md border border-line bg-surface p-2.5 shadow-card">
+        <div className="h-1.5 w-3/4 rounded-full bg-line-strong/50" />
+        <div className="mt-1.5 h-1.5 w-1/2 rounded-full bg-line" />
+        <div className="mt-3 space-y-1.5 rounded border border-dashed border-brand/50 bg-brand-tint/60 p-1.5">
+          {rows.map(([name]) => (
+            <div key={name} className="flex justify-between gap-1">
+              <div className="h-1.5 w-2/3 rounded-full bg-line-strong/40" />
+              <div className="h-1.5 w-1/6 rounded-full bg-brand/60" />
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 h-1.5 w-2/3 rounded-full bg-line" />
+      </div>
+      <ul className="absolute right-4 top-1/2 w-[46%] -translate-y-1/2 space-y-1.5">
+        {rows.map(([name, w]) => (
+          <li key={name} className="flex items-center justify-between rounded-md border border-line bg-surface px-2 py-1 text-[11px] shadow-card">
+            <span className="truncate text-ink-2">{name}</span>
+            <span className="num font-semibold text-ink">{w}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function GradesVisual() {
+  return (
+    <div aria-hidden="true" className="flex h-full flex-col justify-center gap-1.5 p-4 text-[12px]">
+      {[
+        ["Participation", "8.0"],
+        ["Midterm", "6.5"],
+      ].map(([n, g]) => (
+        <div key={n} className="flex items-center justify-between rounded-md border border-line bg-surface px-3 py-1.5">
+          <span className="text-ink-2">{n}</span>
+          <span className="num font-semibold text-ink">{g}</span>
+        </div>
+      ))}
+      <div className="flex items-center justify-between rounded-md border border-brand bg-surface px-3 py-1.5 ring-4 ring-brand/15">
+        <span className="text-ink-2">Group project</span>
+        <span className="num font-semibold text-ink">
+          7.5<span className="ml-px inline-block h-3.5 w-px translate-y-0.5 bg-ink" />
+        </span>
+      </div>
+      <div className="flex items-center justify-between rounded-md border border-dashed border-line-strong px-3 py-1.5">
+        <span className="text-ink-3">Final exam</span>
+        <span className="text-ink-3">not graded</span>
+      </div>
+    </div>
+  );
+}
+
+function NeedVisual() {
+  return (
+    <div aria-hidden="true" className="flex h-full flex-col justify-center p-4">
+      <div className="rounded-[var(--radius-md)] border border-line bg-surface p-3 shadow-card">
+        <div className="flex items-baseline gap-2">
+          <span className="num text-[2.25rem] font-semibold leading-none tracking-[-0.03em] text-brand-ink">6.8</span>
+          <span className="text-[12px] leading-tight text-ink-2">needed on the Final exam</span>
+        </div>
+        <div className="mt-3">
+          <WeightBar items={EXAMPLE_COURSE.items} size="sm" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const STEPS = [
+  { title: "Import your syllabus", text: "Upload the PDF or type the weights. Final exam, midterm, participation…", visual: <ImportVisual /> },
+  { title: "Add grades as they come in", text: "Each grade you add shrinks what's still open.", visual: <GradesVisual /> },
+  { title: "See what you need", text: "One clear number for what's left, to pass or to hit your target.", visual: <NeedVisual /> },
 ];
 
 export default function LandingPage() {
-  const example = computeResult(EXAMPLE_COURSE.items, EXAMPLE_COURSE.target);
-  const final = EXAMPLE_COURSE.items.find((i) => i.grade === null)!;
-
   return (
     <>
       <main className="flex-1">
-        <section className="bg-gradient-to-b from-emerald-50 via-emerald-50/40 to-white">
-          <div className="mx-auto grid max-w-[1100px] gap-10 px-4 pb-14 pt-12 sm:px-6 sm:pt-16 lg:grid-cols-[1.1fr_1fr] lg:items-center lg:gap-14 lg:pb-20">
+        <section className="relative overflow-hidden">
+          {/* A faint ruled-paper texture behind the hero. */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 opacity-40 [background-image:linear-gradient(var(--line)_1px,transparent_1px)] [background-size:100%_32px] [mask-image:linear-gradient(to_bottom,transparent,black_20%,transparent_80%)]"
+          />
+          <div className="relative mx-auto grid max-w-[1120px] gap-12 px-4 pb-16 pt-12 sm:px-6 sm:pt-20 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:gap-16 lg:pb-24">
             <div>
-              <p className="text-sm font-semibold text-emerald-800">For IE University students</p>
-              <h1 className="mt-3 text-4xl font-bold leading-tight tracking-tight text-gray-900 sm:text-5xl">
+              <p className="text-sm font-medium text-brand-ink">For IE University students</p>
+              <h1 className="font-display mt-4 max-w-[13ch] text-[2.75rem] leading-[1.02] text-ink sm:text-[3.75rem] lg:text-[4.25rem]">
                 Know exactly what you need on the final.
               </h1>
-              <p className="mt-5 max-w-xl text-lg leading-relaxed text-gray-700">
-                PassMark is a grade calculator for IE students. Add your courses and their weights,
-                enter grades as they come in, and see the score you need on what&apos;s left to pass or
-                hit your target.
+              <p className="mt-6 max-w-[34rem] text-lg leading-relaxed text-ink-2">
+                Add your courses and your grades as they come in. PassMark shows the grade you need on
+                what&apos;s left to pass, or to hit your target.
               </p>
-              <div className="mt-8">
-                <Link
-                  href="/signup"
-                  className="inline-flex min-h-12 items-center justify-center rounded-lg bg-emerald-700 px-6 text-lg font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800"
-                >
+              <div className="mt-9 flex flex-col items-start gap-4">
+                <Link href="/signup" className={buttonClass("primary", "lg")}>
                   Sign up free
                 </Link>
+                <p className="text-sm text-ink-3">Free · Private · Reads your syllabus PDF</p>
               </div>
             </div>
 
-            <section aria-labelledby="example-title">
-              <h2 id="example-title" className="sr-only">
-                Example course
-              </h2>
-              {/* Same look as a course card in the app. */}
-              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-md sm:p-6">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xl font-semibold text-gray-900">{EXAMPLE_COURSE.name}</p>
-                    <p className="text-sm text-gray-700">Target {formatGrade(EXAMPLE_COURSE.target)}</p>
-                  </div>
-                  <StatusBadge result={example} />
-                </div>
-
-                <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
-                  <p className="flex items-baseline gap-2">
-                    <span className="text-5xl font-bold tracking-tight text-emerald-800 tabular-nums">
-                      {formatGrade(example.needed!)}
-                    </span>
-                    <span className="text-sm text-gray-700">needed on what&apos;s left</span>
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-gray-900">
-                    You need {formatGrade(example.needed!)} on the {final.name} to reach{" "}
-                    {formatGrade(EXAMPLE_COURSE.target)}
-                  </p>
-                  <p className="mt-1 text-sm text-gray-700">
-                    Minimum {formatGrade(final.minGrade!)} on the final: covered
-                  </p>
-                </div>
-
-                <ul className="mt-4 divide-y divide-gray-100 rounded-xl border border-gray-200 text-gray-900">
-                  {EXAMPLE_COURSE.items.map((item) => (
-                    <li key={item.name} className="flex items-center gap-3 px-3 py-2.5">
-                      <span className="min-w-0 flex-1">{item.name}</span>
-                      <span className="w-12 text-right text-sm text-gray-700 tabular-nums">
-                        {formatWeight(item.weight)}%
-                      </span>
-                      <span
-                        className={`w-28 text-right tabular-nums ${
-                          item.grade === null ? "text-sm text-gray-700" : "font-semibold"
-                        }`}
-                      >
-                        {item.grade === null ? "not graded yet" : formatGrade(item.grade)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </section>
+            <LandingDemo />
           </div>
         </section>
 
-        <section aria-labelledby="how-title" className="border-t border-gray-100 bg-gray-50">
-          <div className="mx-auto max-w-[1100px] px-4 py-14 sm:px-6">
-            <h2 id="how-title" className="text-2xl font-bold text-gray-900">
+        <section aria-labelledby="how-title" className="border-t border-line bg-surface/60">
+          <div className="mx-auto max-w-[1120px] px-4 py-16 sm:px-6 sm:py-24">
+            <h2 id="how-title" className="font-display text-[2rem] leading-tight text-ink sm:text-[2.5rem]">
               How it works
             </h2>
-            <ol className="mt-6 grid gap-4 sm:grid-cols-3">
+            <ol className="mt-10 grid gap-10 md:grid-cols-3 md:gap-8">
               {STEPS.map((step, i) => (
-                <li key={step.title} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                  <span
-                    aria-hidden="true"
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-700 text-sm font-bold text-white"
-                  >
-                    {i + 1}
-                  </span>
-                  <p className="mt-3 font-semibold text-gray-900">
-                    <span className="sr-only">Step {i + 1}: </span>
-                    {step.title}
-                  </p>
-                  <p className="mt-1 text-sm text-gray-700">{step.text}</p>
+                <li key={step.title}>
+                  <div className="h-44 overflow-hidden rounded-[var(--radius-lg)] border border-line bg-sunken">
+                    {step.visual}
+                  </div>
+                  <div className="mt-5 grid grid-cols-[1.5rem_1fr] gap-x-2">
+                    <span aria-hidden="true" className="num font-display text-[1.75rem] leading-[1.1] text-brand-ink">
+                      {i + 1}
+                    </span>
+                    <div>
+                      <p className="text-lg font-semibold text-ink">
+                        <span className="sr-only">Step {i + 1}: </span>
+                        {step.title}
+                      </p>
+                      <p className="mt-1 text-ink-2">{step.text}</p>
+                    </div>
+                  </div>
                 </li>
               ))}
             </ol>
           </div>
         </section>
 
-        <section aria-labelledby="features-title">
-          <div className="mx-auto max-w-[1100px] px-4 py-12 sm:px-6">
+        <section aria-labelledby="features-title" className="border-t border-line">
+          <div className="mx-auto max-w-[1120px] px-4 py-14 sm:px-6 sm:py-20">
             <h2 id="features-title" className="sr-only">
               What you get
             </h2>
-            <ul className="grid gap-4 sm:grid-cols-3">
+            <ul className="grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
               {FEATURES.map((f) => (
-                <li key={f.text} className="flex items-center gap-3">
-                  <span
-                    aria-hidden="true"
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-800"
-                  >
-                    {f.icon}
-                  </span>
-                  <span className="font-medium text-gray-900">{f.text}</span>
+                <li key={f.title}>
+                  <f.icon aria-hidden="true" size={22} strokeWidth={1.75} className="text-brand" />
+                  <p className="mt-3 font-semibold text-ink">{f.title}</p>
+                  <p className="mt-1 text-sm leading-relaxed text-ink-2">{f.text}</p>
                 </li>
               ))}
             </ul>
           </div>
         </section>
+
+        <section aria-labelledby="faq-title" className="border-t border-line">
+          <div className="mx-auto grid max-w-[1120px] gap-8 px-4 py-16 sm:px-6 sm:py-24 lg:grid-cols-[1fr_2fr]">
+            <h2 id="faq-title" className="font-display text-[2rem] leading-tight text-ink sm:text-[2.5rem]">
+              Questions
+            </h2>
+            <div className="divide-y divide-line border-y border-line">
+              {FAQ.map((item) => (
+                <details key={item.q} className="group">
+                  <summary className="flex min-h-14 cursor-pointer items-center justify-between gap-4 rounded-md py-4 text-lg font-medium text-ink">
+                    {item.q}
+                    <ChevronDown
+                      aria-hidden="true"
+                      size={20}
+                      className="faq-chevron shrink-0 text-ink-3 transition-transform duration-[var(--dur)]"
+                    />
+                  </summary>
+                  <p className="max-w-prose pb-5 leading-relaxed text-ink-2">{item.a}</p>
+                </details>
+              ))}
+            </div>
+          </div>
+        </section>
       </main>
-      <footer className="border-t border-gray-200">
-        <p className="mx-auto max-w-[1100px] px-4 py-6 text-sm text-gray-700 sm:px-6">
-          Independent student project. Not affiliated with IE University.
-        </p>
+      <footer className="border-t border-line">
+        <div className="mx-auto flex max-w-[1120px] flex-col gap-1 px-4 py-8 text-sm text-ink-3 sm:flex-row sm:justify-between sm:px-6">
+          <p>Independent student project. Not affiliated with IE University.</p>
+          <p>PassMark</p>
+        </div>
       </footer>
     </>
   );

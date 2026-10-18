@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertTriangle } from "lucide-react";
 import { useId, useState } from "react";
 import { type Assessment, formatWeight, parseWeight, splitEqually } from "@/lib/grades";
 import { inputClass, labelClass, primaryButton, secondaryButton } from "./ui";
@@ -94,13 +95,13 @@ export function SplitForm({
           onCancel();
         }
       }}
-      className="space-y-3 border-t border-gray-100 bg-gray-50 px-3 pb-4 pt-3"
+      className="space-y-4 border-t border-line bg-sunken px-4 pb-5 pt-4"
     >
-      <h5 id={`${id}-title`} className="font-semibold text-gray-900">
+      <h5 id={`${id}-title`} className="font-display text-xl text-ink">
         Split {parent.name} ({formatWeight(parent.weight)}%) into parts
       </h5>
       {parent.grade !== null && (
-        <p className="text-sm text-gray-700">
+        <p className="text-sm text-ink-2">
           Its current grade will be cleared: grades are entered on the parts.
         </p>
       )}
@@ -124,14 +125,14 @@ export function SplitForm({
         <legend className={labelClass}>Weights</legend>
         <div className="mt-1 flex flex-wrap gap-x-4">
           {(["equal", "custom"] as const).map((m) => (
-            <label key={m} className="flex min-h-11 items-center gap-2 text-sm text-gray-900">
+            <label key={m} className="flex min-h-11 items-center gap-2 text-sm text-ink">
               <input
                 type="radio"
                 name={`${id}-mode`}
                 value={m}
                 checked={mode === m}
                 onChange={() => setMode(m)}
-                className="h-5 w-5 accent-emerald-700"
+                className="h-5 w-5 accent-[var(--brand)]"
               />
               {m === "equal" ? "Divide equally" : "Custom weights"}
             </label>
@@ -160,7 +161,7 @@ export function SplitForm({
                   Weight (%)
                 </label>
                 {mode === "equal" ? (
-                  <p id={`${id}-weight-${i}`} className="mt-1 flex min-h-11 items-center px-1 text-gray-900">
+                  <p id={`${id}-weight-${i}`} className="mt-1 flex min-h-11 items-center px-1 text-ink">
                     {formatWeight(equal[i])}%
                   </p>
                 ) : (
@@ -182,8 +183,8 @@ export function SplitForm({
       )}
 
       {customMismatch && (
-        <p className="text-sm text-amber-900">
-          <span aria-hidden="true">⚠ </span>
+        <p className="text-sm text-warn">
+          <AlertTriangle aria-hidden="true" size={14} className="mr-1 inline -translate-y-px" />
           Parts add up to {formatWeight(customTotal)}%, but {parent.name} is {formatWeight(parent.weight)}%.
         </p>
       )}
@@ -195,9 +196,9 @@ export function SplitForm({
             type="checkbox"
             checked={bestOfOn}
             onChange={(e) => setBestOfOn(e.target.checked)}
-            className="h-5 w-5 accent-emerald-700"
+            className="h-5 w-5 accent-[var(--brand)]"
           />
-          <label htmlFor={`${id}-best-on`} className="text-sm text-gray-900">
+          <label htmlFor={`${id}-best-on`} className="text-sm text-ink">
             Only the best K of {count ?? "N"} count
           </label>
         </div>
@@ -220,7 +221,7 @@ export function SplitForm({
 
       <div aria-live="assertive">
         {error && (
-          <p role="alert" className="text-sm text-red-700">
+          <p role="alert" className="text-sm text-bad">
             {error}
           </p>
         )}
