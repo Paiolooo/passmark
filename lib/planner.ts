@@ -1,6 +1,13 @@
 // "Plan your remaining grades": try a grade on one assessment and see what the rest need.
 // Pure functions only. Plans are never saved: they are what-ifs, not grades.
-import { type Assessment, PASS_GRADE, buildCourseModel, round1 } from "./grades";
+import {
+  type Assessment,
+  PASS_GRADE,
+  buildCourseModel,
+  effectiveBestOf,
+  groupAssessments,
+  round1,
+} from "./grades";
 
 const EPS = 1e-9;
 /** Tolerance when comparing a projection with the target. */
@@ -15,8 +22,27 @@ export type PlanRow = {
   minGrade: number | null;
 };
 
+/** One line of the planner list, in course order: a real grade (fixed) or a plan (movable). */
+export type PlanListItem =
+  | {
+      kind: "graded";
+      id: string;
+      name: string;
+      /** Weight this grade counts with (a "best K of N" part counts with parent weight ÷ K). */
+      weight: number;
+      grade: number;
+      /** Parent name, for parts. */
+      parent: string | null;
+      /** False for a "best K of N" part that isn't among the best K, so it doesn't count. */
+      counts: boolean;
+    }
+  | { kind: "plan"; key: string; parent: string | null };
+
 export type PlanInput = {
+  /** The movable rows (ungraded). */
   rows: PlanRow[];
+  /** Every assessment in course order, graded ones included. */
+  list: PlanListItem[];
   /** Points already earned: sum of weight × grade over graded items. */
   points: number;
   /** Sum of all weights. */
@@ -42,9 +68,61 @@ export function planInput(assessments: Assessment[]): PlanInput {
   }
   return {
     rows,
+    list: planList(assessments, rows),
     points: items.reduce((sum, i) => sum + (i.grade === null ? 0 : i.weight * i.grade), 0),
     totalWeight: items.reduce((sum, i) => sum + i.weight, 0),
   };
+}
+
+/** Every assessment in course order; graded ones are fixed, ungraded ones point at their row. */
+function planList(assessments: Assessment[], rows: PlanRow[]): PlanListItem[] {
+  const list: PlanListItem[] = [];
+  const planned = new Set<string>();
+  const plan = (key: string, parent: string | null) => {
+    if (planned.has(key) || !rows.some((r) => r.key === key)) return;
+    planned.add(key);
+    list.push({ kind: "plan", key, parent });
+  };
+
+  for (const { assessment: a, parts } of groupAssessments(assessments)) {
+    if (parts.length === 0) {
+      if (a.grade !== null) {
+        list.push({ kind: "graded", id: a.id, name: a.name, weight: a.weight, grade: a.grade, parent: null, counts: true });
+      } else {
+        plan(a.name, null);
+      }
+      continue;
+    }
+    const k = effectiveBestOf(a, parts);
+    if (k === null) {
+      for (const p of parts) {
+        if (p.grade !== null) {
+          list.push({ kind: "graded", id: p.id, name: p.name, weight: p.weight, grade: p.grade, parent: a.name, counts: true });
+        } else {
+          plan(p.name, a.name);
+        }
+      }
+    } else {
+      // Best K of N: the best K grades count, each with parent weight ÷ K; open slots are one row.
+      const graded = parts.filter((p) => p.grade !== null);
+      const best = new Set(
+        [...graded].sort((x, y) => (y.grade as number) - (x.grade as number)).slice(0, k).map((p) => p.id),
+      );
+      for (const p of graded) {
+        list.push({
+          kind: "graded",
+          id: p.id,
+          name: p.name,
+          weight: a.weight / k,
+          grade: p.grade as number,
+          parent: a.name,
+          counts: best.has(p.id),
+        });
+      }
+      plan(a.name, null);
+    }
+  }
+  return list;
 }
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));

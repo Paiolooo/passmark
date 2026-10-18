@@ -5,6 +5,7 @@ import type { Assessment } from "@/lib/grades";
 import { PASS_GRADE, formatGrade, formatWeight, parseDecimal, roundUp1 } from "@/lib/grades";
 import {
   type PlanInput,
+  type PlanListItem,
   type PlanRow,
   type PlanValues,
   evenSplit,
@@ -167,21 +168,27 @@ export const GradePlanner = forwardRef<HTMLHeadingElement, Props>(function Grade
       </p>
 
       <ul className="mt-4 space-y-3">
-        {input.rows.map((r, i) => (
-          <PlanSlider
-            key={r.key}
-            id={`${idPrefix}-plan-${i}`}
-            row={r}
-            value={values[r.key]}
-            mode={single ? "single" : r.key === moving ? "moving" : pinned.includes(r.key) ? "pinned" : "auto"}
-            short={status.short.includes(r.key)}
-            unreachableHere={status.unreachable && r.key === moving}
-            flashId={flash.keys.includes(r.key) ? flash.id : null}
-            onMove={(v) => move(r.key, v)}
-            onTogglePin={() => togglePin(r.key)}
-            pinnedFlag={pinned.includes(r.key)}
-          />
-        ))}
+        {input.list.map((item) => {
+          if (item.kind === "graded") return <GradedRow key={item.id} item={item} />;
+          const i = input.rows.findIndex((r) => r.key === item.key);
+          const r = input.rows[i];
+          return (
+            <PlanSlider
+              key={r.key}
+              id={`${idPrefix}-plan-${i}`}
+              row={r}
+              parent={item.parent}
+              value={values[r.key]}
+              mode={single ? "single" : r.key === moving ? "moving" : pinned.includes(r.key) ? "pinned" : "auto"}
+              short={status.short.includes(r.key)}
+              unreachableHere={status.unreachable && r.key === moving}
+              flashId={flash.keys.includes(r.key) ? flash.id : null}
+              onMove={(v) => move(r.key, v)}
+              onTogglePin={() => togglePin(r.key)}
+              pinnedFlag={pinned.includes(r.key)}
+            />
+          );
+        })}
       </ul>
 
       {!single && (
@@ -201,9 +208,42 @@ export const GradePlanner = forwardRef<HTMLHeadingElement, Props>(function Grade
   );
 });
 
+/** A real grade: fixed, shown as a solid bar and solid black text. Never moves. */
+function GradedRow({ item }: { item: Extract<PlanListItem, { kind: "graded" }> }) {
+  return (
+    <li className={`rounded-xl border border-gray-300 bg-gray-50 p-3 ${item.parent ? "ml-4" : ""}`}>
+      <div className="sm:grid sm:grid-cols-[minmax(0,14rem)_1fr_auto] sm:items-center sm:gap-4">
+        <div>
+          <p className="wrap-anywhere font-medium text-gray-900">
+            {item.name} · {formatWeight(item.weight)}%
+          </p>
+          {item.parent && <p className="text-xs text-gray-700">part of {item.parent}</p>}
+          <p className="text-xs text-gray-700">Real grade · edit it in the assessment list</p>
+          {!item.counts && (
+            <p className="text-xs font-medium text-gray-800">Not counted: not among the best grades</p>
+          )}
+        </div>
+        <div className="mt-1 flex items-center gap-3 sm:mt-0 sm:contents">
+          <div aria-hidden="true" className="flex h-11 min-w-0 flex-1 items-center">
+            <div
+              className="h-2 w-full rounded-full"
+              style={{ background: `linear-gradient(to right, #111827 ${item.grade * 10}%, #d1d5db ${item.grade * 10}%)` }}
+            />
+          </div>
+          <div className="w-20 shrink-0 px-1 py-1 text-center text-gray-900">
+            <span className="block text-[11px] font-semibold leading-none">Your grade</span>
+            <span className="block text-2xl font-bold leading-tight">{formatGrade(item.grade)}</span>
+          </div>
+        </div>
+      </div>
+    </li>
+  );
+}
+
 function PlanSlider({
   id,
   row,
+  parent,
   value,
   mode,
   pinnedFlag,
@@ -215,6 +255,8 @@ function PlanSlider({
 }: {
   id: string;
   row: PlanRow;
+  /** Parent name, for parts (shown indented). */
+  parent: string | null;
   value: number;
   /** "single": the only ungraded row, shown read-only as what you need. */
   mode: "auto" | "moving" | "pinned" | "single";
@@ -233,7 +275,7 @@ function PlanSlider({
 
   return (
     <li
-      className={`relative overflow-hidden rounded-xl border p-3 ${
+      className={`relative overflow-hidden rounded-xl border p-3 ${parent ? "ml-4" : ""} ${
         red ? "border-red-300 bg-red-50" : "border-gray-200 bg-white"
       }`}
     >
@@ -251,6 +293,7 @@ function PlanSlider({
               {row.name} · {formatWeight(row.weight)}%
             </label>
           )}
+          {parent && <p className="text-xs text-gray-700">part of {parent}</p>}
           <div className="flex flex-wrap items-center gap-2 sm:mt-1">
             {row.minGrade !== null && (
               <span className="text-xs font-medium text-gray-700">min {formatGrade(row.minGrade)}</span>

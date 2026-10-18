@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Assessment } from "./grades";
+import { type Assessment, computeCourse } from "./grades";
 import {
   type PlanValues,
   evenSplit,
@@ -238,5 +238,91 @@ describe("planStatus: impossible and secured", () => {
   it("on target is neither secured nor unreachable", () => {
     const status = planStatus(input, evenSplit(input, TARGET), [], TARGET);
     expect(status).toMatchObject({ reachesTarget: true, unreachable: false, secured: false, short: [] });
+  });
+});
+
+// ─── Graded assessments in the planner ────────────────────────────────────
+
+describe("graded rows", () => {
+  // Course order: Participation (graded), Assignments split into two parts (one graded),
+  // Tests, Final Exam (graded 4.6, min 4).
+  const participation = row({ name: "Participation", weight: 10, grade: 8 });
+  const assignments = row({ name: "Assignments", weight: 20 });
+  const a1 = row({ name: "Assignment #1", parent_id: assignments.id, weight: 5, grade: 9, position: 0 });
+  const a2 = row({ name: "Assignment #2", parent_id: assignments.id, weight: 15, position: 1 });
+  const tests = row({ name: "Tests", weight: 30 });
+  const final = row({ name: "Final Exam", weight: 40, grade: 4.6, min_grade: 4 });
+  const course = [participation, assignments, a1, a2, tests, final];
+  const graded = planInput(course);
+
+  it("lists every assessment in course order, graded ones included", () => {
+    expect(
+      graded.list.map((i) => (i.kind === "graded" ? `${i.name} = ${i.grade}` : `plan ${i.key}`)),
+    ).toEqual([
+      "Participation = 8",
+      "Assignment #1 = 9",
+      "plan Assignment #2",
+      "plan Tests",
+      "Final Exam = 4.6",
+    ]);
+    expect(graded.list[1]).toMatchObject({ kind: "graded", parent: "Assignments", weight: 5 });
+    expect(graded.list[2]).toMatchObject({ kind: "plan", parent: "Assignments" });
+  });
+
+  it("only ungraded rows can move; graded ones are not sliders", () => {
+    expect(graded.rows.map((r) => r.key)).toEqual(["Assignment #2", "Tests"]);
+    // Points from real grades: 10×8 + 5×9 + 40×4.6 = 309.
+    expect(graded.points).toBeCloseTo(309, 9);
+  });
+
+  it("graded rows never change: moving the others keeps the real-grade points fixed", () => {
+    let v = evenSplit(graded, 7);
+    // The rest needs 391 points over 45% (8.7 on average); each move keeps that reachable,
+    // e.g. Assignment #2 at 9 leaves (391 − 135) / 30 = 8.53 for Tests.
+    for (const [key, value] of [["Tests", 9], ["Assignment #2", 9], ["Tests", 8.5]] as const) {
+      v = moveRow(graded, v, [], key, value, 7);
+      expect(Object.keys(v).sort()).toEqual(["Assignment #2", "Tests"]);
+      expect(projectedGrade(graded, v)).toBeCloseTo(7, 9);
+    }
+  });
+
+  it("the projected grade counts real grades exactly like the main calculation", () => {
+    const v = moveRow(graded, evenSplit(graded, 7), [], "Tests", 8.3, 7);
+    // Turn the plan into grades and ask the main calculator.
+    const asGrades = course.map((a) =>
+      a.grade === null && a.name in v ? { ...a, grade: v[a.name] } : a,
+    );
+    const main = computeCourse(asGrades, 7);
+    expect(main.outcome).toBe("final");
+    expect(main.finalGrade).toBeCloseTo(projectedGrade(graded, v), 9);
+  });
+
+  it("a best-of group lists its graded parts and one row for the open slots", () => {
+    const finalExam = row({ name: "Final", weight: 80 });
+    const quizzes = row({ name: "Quizzes", weight: 20, best_of: 3 });
+    const qs = [9, 4, null, null].map((grade, i) =>
+      row({ name: `Quiz ${i + 1}`, parent_id: quizzes.id, weight: 5, grade, position: i }),
+    );
+    const input = planInput([finalExam, quizzes, ...qs]);
+    expect(input.list.map((i) => (i.kind === "graded" ? `${i.name} ${i.grade} ${i.counts}` : `plan ${i.key}`))).toEqual([
+      "plan Final",
+      "Quiz 1 9 true",
+      "Quiz 2 4 true",
+      "plan Quizzes",
+    ]);
+    // Two graded quizzes count with 20 / 3 each; one open slot left.
+    expect(input.points).toBeCloseTo((20 / 3) * 13, 9);
+    expect(input.rows.find((r) => r.key === "Quizzes")!.weight).toBeCloseTo(20 / 3, 9);
+  });
+
+  it("a best-of part outside the best K is listed but marked as not counting", () => {
+    const quizzes = row({ name: "Quizzes", weight: 20, best_of: 2 });
+    const qs = [9, 4, 7].map((grade, i) =>
+      row({ name: `Quiz ${i + 1}`, parent_id: quizzes.id, weight: 5, grade, position: i }),
+    );
+    const input = planInput([row({ name: "Final", weight: 80 }), quizzes, ...qs]);
+    const quizRows = input.list.filter((i) => i.kind === "graded");
+    expect(quizRows.map((i) => i.kind === "graded" && i.counts)).toEqual([true, false, true]);
+    expect(input.rows.map((r) => r.key)).toEqual(["Final"]);
   });
 });
