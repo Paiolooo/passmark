@@ -26,10 +26,19 @@ export type CountedItem = {
   minGrade: number | null;
 };
 
+/** A minimum grade that must be reached, e.g. "minimum 4.5 in the final exam". */
+export type MinimumRule = {
+  name: string;
+  minGrade: number;
+  /** The grade it applies to, or null while it isn't (fully) graded. */
+  grade: number | null;
+};
+
 export type Outcome =
   | "empty"
   | "no-weights"
   | "below-minimum"
+  | "incomplete"
   | "final"
   | "secured"
   | "unreachable"
@@ -39,6 +48,7 @@ export type Badge =
   | "Add assessments"
   | "Add weights"
   | "Below minimum"
+  | "Check weights"
   | "Passed"
   | "Not passed"
   | "Target secured"
@@ -139,17 +149,133 @@ export function parseTarget(raw: string): FieldResult {
 
 // ─── Counted items ────────────────────────────────────────────────────────
 
-/** PHASE 1: every top-level assessment is one counted item. */
-export function countedItems(assessments: Assessment[]): CountedItem[] {
+export function byPosition(a: Assessment, b: Assessment): number {
+  return a.position - b.position || a.created_at.localeCompare(b.created_at);
+}
+
+/** Top-level assessments in order, each with its parts (sub-assessments) in order. */
+export function groupAssessments(
+  assessments: Assessment[],
+): { assessment: Assessment; parts: Assessment[] }[] {
   return assessments
     .filter((a) => a.parent_id === null)
-    .sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at))
-    .map((a) => ({
-      name: a.name,
-      weight: a.weight,
-      grade: a.grade,
-      minGrade: a.min_grade,
+    .sort(byPosition)
+    .map((assessment) => ({
+      assessment,
+      parts: assessments.filter((a) => a.parent_id === assessment.id).sort(byPosition),
     }));
+}
+
+/** How many parts count for a "best K of N" parent (never more than N). */
+export function effectiveBestOf(parent: Assessment, parts: Assessment[]): number | null {
+  if (!parent.best_of || parts.length === 0) return null;
+  return Math.min(parent.best_of, parts.length);
+}
+
+/**
+ * The calculated grade of a parent from its parts.
+ * `complete` is true once every counted part has a grade.
+ */
+export function parentGrade(
+  parent: Assessment,
+  parts: Assessment[],
+): { grade: number | null; complete: boolean } {
+  const grades = parts.filter((p) => p.grade !== null);
+  if (grades.length === 0) return { grade: null, complete: false };
+
+  const k = effectiveBestOf(parent, parts);
+  if (k !== null) {
+    const best = grades
+      .map((p) => p.grade as number)
+      .sort((a, b) => b - a)
+      .slice(0, k);
+    return { grade: best.reduce((s, g) => s + g, 0) / best.length, complete: best.length >= k };
+  }
+
+  const weight = grades.reduce((s, p) => s + p.weight, 0);
+  const grade =
+    weight > EPS
+      ? grades.reduce((s, p) => s + p.weight * (p.grade as number), 0) / weight
+      : grades.reduce((s, p) => s + (p.grade as number), 0) / grades.length;
+  return { grade, complete: grades.length === parts.length };
+}
+
+/** Sum of the parts' weights, and whether it matches the parent's weight. */
+export function partsWeightCheck(parent: Assessment, parts: Assessment[]) {
+  const total = parts.reduce((s, p) => s + p.weight, 0);
+  return { total, ok: Math.abs(total - parent.weight) < 0.005 };
+}
+
+/** Divides a weight into n parts with 2 decimals that add up exactly: 25 / 3 → 8.33, 8.33, 8.34. */
+export function splitEqually(weight: number, n: number): number[] {
+  const cents = Math.round(weight * 100);
+  const base = Math.floor(cents / n);
+  return Array.from({ length: n }, (_, i) =>
+    i === n - 1 ? (cents - base * (n - 1)) / 100 : base / 100,
+  );
+}
+
+/**
+ * Turns assessments into the items that count for the final grade, plus the minimum-grade rules.
+ * - Top-level assessment without parts → one item with its own weight.
+ * - Parent with parts → each part is an item with its own weight.
+ * - Parent with parts and best_of = K → K slots of parent.weight / K: the best K grades
+ *   once K parts are graded, otherwise all graded parts plus the missing ungraded slots.
+ * - A minimum on a parent applies to the parent's calculated grade.
+ */
+export function buildCourseModel(assessments: Assessment[]): {
+  items: CountedItem[];
+  minimums: MinimumRule[];
+} {
+  const items: CountedItem[] = [];
+  const minimums: MinimumRule[] = [];
+
+  for (const { assessment: a, parts } of groupAssessments(assessments)) {
+    if (parts.length === 0) {
+      items.push({ name: a.name, weight: a.weight, grade: a.grade, minGrade: a.min_grade });
+      if (a.min_grade !== null) minimums.push({ name: a.name, minGrade: a.min_grade, grade: a.grade });
+      continue;
+    }
+
+    const k = effectiveBestOf(a, parts);
+    if (k === null) {
+      for (const p of parts) {
+        items.push({ name: p.name, weight: p.weight, grade: p.grade, minGrade: p.min_grade });
+      }
+    } else {
+      const slot = a.weight / k;
+      const graded = parts
+        .filter((p) => p.grade !== null)
+        .map((p) => p.grade as number)
+        .sort((x, y) => y - x)
+        .slice(0, k);
+      for (const g of graded) items.push({ name: a.name, weight: slot, grade: g, minGrade: null });
+      for (let i = graded.length; i < k; i++) {
+        items.push({ name: a.name, weight: slot, grade: null, minGrade: null });
+      }
+    }
+
+    for (const p of parts) {
+      if (p.min_grade !== null) minimums.push({ name: p.name, minGrade: p.min_grade, grade: p.grade });
+    }
+    if (a.min_grade !== null) {
+      const { grade, complete } = parentGrade(a, parts);
+      minimums.push({ name: a.name, minGrade: a.min_grade, grade: complete ? grade : null });
+    }
+  }
+
+  return { items, minimums };
+}
+
+/** The counted items of a course (see buildCourseModel). */
+export function countedItems(assessments: Assessment[]): CountedItem[] {
+  return buildCourseModel(assessments).items;
+}
+
+/** Full result for a course straight from its assessments. */
+export function computeCourse(assessments: Assessment[], target: number): CourseResult {
+  const { items, minimums } = buildCourseModel(assessments);
+  return computeResult(items, target, minimums);
 }
 
 // ─── Weights ──────────────────────────────────────────────────────────────
@@ -166,11 +292,17 @@ export function weightsMessage(total: number): string {
 
 // ─── The main calculation ─────────────────────────────────────────────────
 
-function minimumLine(item: CountedItem, prefix: string): string {
-  return `${prefix} ${formatGrade(item.minGrade!)} on ${item.name} (minimum required).`;
+function minimumLine(rule: MinimumRule, prefix: string): string {
+  return `${prefix} ${formatGrade(rule.minGrade)} on ${rule.name} (minimum required).`;
 }
 
-export function computeResult(items: CountedItem[], target: number): CourseResult {
+export function computeResult(
+  items: CountedItem[],
+  target: number,
+  minimums: MinimumRule[] = items
+    .filter((i) => i.minGrade !== null)
+    .map((i) => ({ name: i.name, minGrade: i.minGrade as number, grade: i.grade })),
+): CourseResult {
   const T = items.reduce((sum, i) => sum + i.weight, 0);
   const graded = items.filter((i) => i.grade !== null);
   const ungraded = items.filter((i) => i.grade === null);
@@ -210,9 +342,7 @@ export function computeResult(items: CountedItem[], target: number): CourseResul
   }
 
   // 2. A graded item is already below its required minimum.
-  const failedMin = graded.find(
-    (i) => i.minGrade !== null && (i.grade as number) < i.minGrade - EPS,
-  );
+  const failedMin = minimums.find((m) => m.grade !== null && m.grade < m.minGrade - EPS);
   if (failedMin) {
     return {
       ...base,
@@ -220,8 +350,21 @@ export function computeResult(items: CountedItem[], target: number): CourseResul
       badge: "Below minimum",
       tone: "bad",
       headline: `Below the minimum on ${failedMin.name} (needs ${formatGrade(
-        failedMin.minGrade!,
+        failedMin.minGrade,
       )}, got ${formatGrade(failedMin.grade!)}). You won't pass this course in the ordinary call.`,
+    };
+  }
+
+  // 3. Everything is graded, but the weights are not 100%: no final grade yet.
+  if (R <= EPS && !base.weightsOk) {
+    return {
+      ...base,
+      outcome: "incomplete",
+      badge: "Check weights",
+      tone: "neutral",
+      headline: `Incomplete: weights add up to ${formatWeight(
+        T,
+      )}%. Add the missing assessments from your syllabus.`,
     };
   }
 
@@ -245,8 +388,10 @@ export function computeResult(items: CountedItem[], target: number): CourseResul
   const rawNeeded = neededFor(target);
   const needed = roundUp1(rawNeeded);
   const maxPossible = (points + 10 * R) / T;
-  const remaining = ungraded.filter((i) => i.weight > EPS);
-  const withMinimum = ungraded.filter((i) => i.minGrade !== null && i.minGrade > EPS);
+  const remainingNames = [
+    ...new Set(ungraded.filter((i) => i.weight > EPS).map((i) => i.name)),
+  ];
+  const withMinimum = minimums.filter((m) => m.grade === null && m.minGrade > EPS);
 
   // 4. Target already guaranteed.
   if (rawNeeded <= EPS) {
@@ -275,7 +420,7 @@ export function computeResult(items: CountedItem[], target: number): CourseResul
         const passNeeded = roundUp1(rawPass);
         details.push(`To pass you need ${formatGrade(passNeeded)} on the rest.`);
         withMinimum
-          .filter((i) => i.minGrade! > passNeeded)
+          .filter((m) => m.minGrade > passNeeded)
           .forEach((i) => details.push(minimumLine(i, "…and at least")));
       }
     }
@@ -295,11 +440,11 @@ export function computeResult(items: CountedItem[], target: number): CourseResul
 
   // 6. A clear number to aim for.
   const headline =
-    remaining.length === 1
-      ? `You need ${formatGrade(needed)} on ${remaining[0].name} to reach ${formatGrade(target)}.`
+    remainingNames.length === 1
+      ? `You need ${formatGrade(needed)} on ${remainingNames[0]} to reach ${formatGrade(target)}.`
       : `You need an average of ${formatGrade(needed)} on the remaining ${formatWeight(
           R,
-        )}% (${remaining.map((i) => i.name).join(", ")}).`;
+        )}% (${remainingNames.join(", ")}).`;
   const atRisk = needed > 8;
   return {
     ...base,
@@ -310,8 +455,8 @@ export function computeResult(items: CountedItem[], target: number): CourseResul
     tone: atRisk ? "warn" : "good",
     headline,
     details: withMinimum
-      .filter((i) => i.minGrade! > needed)
-      .map((i) => minimumLine(i, "…and at least")),
+      .filter((m) => m.minGrade > needed)
+      .map((m) => minimumLine(m, "…and at least")),
   };
 }
 

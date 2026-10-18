@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   type Assessment,
+  buildCourseModel,
+  computeCourse,
+  parentGrade,
+  partsWeightCheck,
+  splitEqually,
   type CountedItem,
   EXAMPLE_COURSE,
   computeResult,
@@ -245,9 +250,26 @@ describe("computeResult", () => {
     expect(r.outcome).toBe("needed");
   });
 
-  it("final grade with weights over 100 is normalised by the total", () => {
-    const r = computeResult([item("A", 60, 6), item("B", 60, 8)], 5);
-    expect(r.headline).toBe("Final grade: 7.0");
+  it("never shows a final grade when everything is graded but weights are not 100%", () => {
+    for (const items of [
+      [item("Midterm", 30, 9), item("Final exam", 55, 9)],
+      [item("A", 60, 6), item("B", 60, 8)],
+    ]) {
+      const r = computeResult(items, 5);
+      expect(r.outcome).toBe("incomplete");
+      expect(r.badge).toBe("Check weights");
+      expect(r.tone).toBe("neutral");
+      expect(r.finalGrade).toBeNull();
+      expect(r.headline).not.toMatch(/Final grade|Passed/);
+    }
+    expect(computeResult([item("Midterm", 30, 9), item("Final exam", 55, 9)], 5).headline).toBe(
+      "Incomplete: weights add up to 85%. Add the missing assessments from your syllabus.",
+    );
+  });
+
+  it("a failed minimum still wins over incomplete weights", () => {
+    const r = computeResult([item("Midterm", 30, 9), item("Final exam", 55, 3, 4)], 5);
+    expect(r.outcome).toBe("below-minimum");
   });
 
   it("reports the average so far", () => {
@@ -307,5 +329,171 @@ describe("summarize", () => {
     expect(summarize([ok, ok, risk, lost])).toBe("4 courses · 1 at risk · 1 not reachable");
     expect(summarize([ok])).toBe("1 course");
     expect(summarize([])).toBe("0 courses");
+  });
+});
+
+// ─── PHASE 2: parts and "best K of N" ─────────────────────────────────────
+
+let seq = 0;
+const row = (over: Partial<Assessment>): Assessment => ({
+  id: `id${++seq}`,
+  course_id: "c",
+  parent_id: null,
+  name: "A",
+  weight: 0,
+  grade: null,
+  min_grade: null,
+  best_of: null,
+  position: seq,
+  created_at: "2026-01-01T00:00:00Z",
+  ...over,
+});
+
+/** A parent with parts. grades: one entry per part (null = not graded). */
+function withParts(
+  name: string,
+  weight: number,
+  grades: (number | null)[],
+  over: Partial<Assessment> = {},
+  partWeights?: number[],
+) {
+  const parent = row({ name, weight, ...over });
+  const weights = partWeights ?? splitEqually(weight, grades.length);
+  const parts = grades.map((grade, i) =>
+    row({ name: `${name} ${i + 1}`, parent_id: parent.id, weight: weights[i], grade, position: i }),
+  );
+  return [parent, ...parts];
+}
+
+describe("splitEqually", () => {
+  it("divides weights into parts that add up exactly", () => {
+    expect(splitEqually(25, 5)).toEqual([5, 5, 5, 5, 5]);
+    expect(splitEqually(25, 3)).toEqual([8.33, 8.33, 8.34]);
+    expect(splitEqually(10, 3).reduce((a, b) => a + b, 0)).toBeCloseTo(10, 10);
+  });
+});
+
+describe("parts without best-of", () => {
+  it("each part counts with its own weight", () => {
+    const rows = [
+      row({ name: "Final exam", weight: 40 }),
+      ...withParts("Assignments", 20, [8, null], {}, [5, 15]),
+      row({ name: "Midterm", weight: 40, grade: 6 }),
+    ];
+    const { items } = buildCourseModel(rows);
+    expect(items.map((i) => [i.name, i.weight, i.grade])).toEqual([
+      ["Final exam", 40, null],
+      ["Assignments 1", 5, 8],
+      ["Assignments 2", 15, null],
+      ["Midterm", 40, 6],
+    ]);
+    const r = computeCourse(rows, 5);
+    // (500 − 40 − 240) / 55 = 4.0
+    expect(r.needed).toBe(4);
+    expect(r.headline).toBe(
+      "You need an average of 4.0 on the remaining 55% (Final exam, Assignments 2).",
+    );
+  });
+
+  it("the parent shows the weighted grade of its parts", () => {
+    const [parent, ...parts] = withParts("Assignments", 20, [8, 6], {}, [5, 15]);
+    expect(parentGrade(parent, parts)).toEqual({ grade: 6.5, complete: true });
+    const [p2, ...partial] = withParts("Assignments", 20, [8, null], {}, [5, 15]);
+    expect(parentGrade(p2, partial)).toEqual({ grade: 8, complete: false });
+  });
+
+  it("warns when parts don't add up to the parent's weight", () => {
+    const [parent, ...parts] = withParts("Assignments", 20, [null, null], {}, [5, 10]);
+    expect(partsWeightCheck(parent, parts)).toEqual({ total: 15, ok: false });
+    const r = computeCourse([row({ name: "Final exam", weight: 80 }), parent, ...parts], 5);
+    expect(r.totalWeight).toBe(95);
+    expect(r.weightsOk).toBe(false);
+  });
+
+  it("parts that add up are fine", () => {
+    const [parent, ...parts] = withParts("Assignments", 20, [null, null], {}, [5, 15]);
+    expect(partsWeightCheck(parent, parts).ok).toBe(true);
+  });
+});
+
+describe("best K of N", () => {
+  const quizzes = (grades: (number | null)[]) =>
+    withParts("Quizzes", 25, grades, { best_of: 4 });
+
+  it("fewer graded parts than K: graded parts plus empty slots of weight/K", () => {
+    const rows = [row({ name: "Final exam", weight: 75 }), ...quizzes([8, 6, null, null, null])];
+    const { items } = buildCourseModel(rows);
+    const quiz = items.filter((i) => i.name === "Quizzes");
+    expect(quiz).toHaveLength(4);
+    expect(quiz.map((i) => i.weight)).toEqual([6.25, 6.25, 6.25, 6.25]);
+    expect(quiz.map((i) => i.grade)).toEqual([8, 6, null, null]);
+    const r = computeCourse(rows, 5);
+    // R = 75 + 12.5; points = 6.25 × 14 = 87.5; (500 − 87.5) / 87.5 = 4.714… → 4.8
+    expect(r.needed).toBe(4.8);
+    expect(r.headline).toBe(
+      "You need an average of 4.8 on the remaining 87.5% (Final exam, Quizzes).",
+    );
+  });
+
+  it("exactly K graded: the parent is fully graded", () => {
+    const rows = quizzes([8, 6, 7, 9, null]);
+    const { items } = buildCourseModel(rows);
+    expect(items.map((i) => i.grade)).toEqual([9, 8, 7, 6]);
+    const [parent, ...parts] = rows;
+    expect(parentGrade(parent, parts)).toEqual({ grade: 7.5, complete: true });
+  });
+
+  it("more than K graded: only the best K count", () => {
+    const rows = [row({ name: "Final exam", weight: 75, grade: 7 }), ...quizzes([8, 2, 7, 9, 6])];
+    const { items } = buildCourseModel(rows);
+    expect(items.filter((i) => i.name === "Quizzes").map((i) => i.grade)).toEqual([9, 8, 7, 6]);
+    const r = computeCourse(rows, 5);
+    // 75 × 7 + 6.25 × 30 = 712.5 → 7.1
+    expect(r.headline).toBe("Final grade: 7.1");
+    expect(r.badge).toBe("Passed");
+  });
+
+  it("K larger than the number of parts counts every part", () => {
+    const rows = withParts("Quizzes", 20, [5, 7], { best_of: 5 });
+    const { items } = buildCourseModel(rows);
+    expect(items.map((i) => [i.weight, i.grade])).toEqual([
+      [10, 7],
+      [10, 5],
+    ]);
+  });
+});
+
+describe("minimum on a parent", () => {
+  it("applies to the calculated grade once the parent is fully graded", () => {
+    const rows = [
+      row({ name: "Final exam", weight: 75, grade: 9 }),
+      ...withParts("Quizzes", 25, [4, 3, 5, 4, 2], { best_of: 4, min_grade: 4.5 }),
+    ];
+    // best 4: 5, 4, 4, 3 → 4.0 < 4.5
+    const r = computeCourse(rows, 5);
+    expect(r.outcome).toBe("below-minimum");
+    expect(r.headline).toBe(
+      "Below the minimum on Quizzes (needs 4.5, got 4.0). You won't pass this course in the ordinary call.",
+    );
+  });
+
+  it("is a requirement still to meet while parts are missing", () => {
+    const rows = [
+      row({ name: "Final exam", weight: 60, grade: 9 }),
+      ...withParts("Assignments", 40, [2, null], { min_grade: 5 }, [20, 20]),
+    ];
+    const r = computeCourse(rows, 5);
+    // (500 − 540 − 40) < 0 → secured, but the minimum on Assignments still applies
+    expect(r.outcome).toBe("secured");
+    expect(r.details).toEqual(["You still need at least 5.0 on Assignments (minimum required)."]);
+  });
+
+  it("minimums on individual parts are checked too", () => {
+    const rows = [
+      row({ name: "Final exam", weight: 60 }),
+      ...withParts("Assignments", 40, [3, null], {}, [20, 20]),
+    ];
+    rows[2].min_grade = 4;
+    expect(computeCourse(rows, 5).outcome).toBe("below-minimum");
   });
 });

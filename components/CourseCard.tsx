@@ -5,16 +5,19 @@ import { createClient } from "@/lib/supabase/client";
 import { ASSESSMENT_COLUMNS, type Course, toAssessment } from "@/lib/courses";
 import {
   type Assessment,
-  computeResult,
-  countedItems,
+  type CourseResult,
+  computeCourse,
   formatGrade,
   parseTarget,
   weightsMessage,
 } from "@/lib/grades";
 import type { CourseUpdater } from "./CoursesApp";
 import { AddAssessmentForm, type NewAssessment } from "./AddAssessmentForm";
-import { AssessmentRow } from "./AssessmentRow";
+import { AssessmentList } from "./AssessmentList";
+import type { EditorActions } from "./AssessmentEditor";
+import type { NewPart } from "./SplitForm";
 import { StatusBadge } from "./StatusBadge";
+import { linkButton } from "./ui";
 import { SaveIndicator, useSaver } from "./useSaver";
 
 const TARGETS = [
@@ -37,19 +40,15 @@ export function CourseCard({
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const { status, save } = useSaver();
 
   const result = useMemo(
-    () => computeResult(countedItems(course.assessments), course.target_grade),
+    () => computeCourse(course.assessments, course.target_grade),
     [course.assessments, course.target_grade],
   );
-  const topLevel = useMemo(
-    () =>
-      course.assessments
-        .filter((a) => a.parent_id === null)
-        .sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at)),
-    [course.assessments],
-  );
+  const topLevel = course.assessments.filter((a) => a.parent_id === null);
 
   const supabase = () => createClient();
 
@@ -99,12 +98,56 @@ export function CourseCard({
   async function deleteAssessment(assessmentId: string) {
     const { ok } = await save(() => supabase().from("assessments").delete().eq("id", assessmentId));
     if (ok) {
+      setEditingId(null);
       onUpdate(course.id, (c) => ({
         ...c,
         assessments: c.assessments.filter((a) => a.id !== assessmentId && a.parent_id !== assessmentId),
       }));
     }
+    return ok;
   }
+
+  async function splitAssessment(parent: Assessment, parts: NewPart[], bestOf: number | null) {
+    const updated = await save(() =>
+      supabase()
+        .from("assessments")
+        .update({ best_of: bestOf, grade: null })
+        .eq("id", parent.id)
+        .select(ASSESSMENT_COLUMNS)
+        .single(),
+    );
+    if (!updated.ok || !updated.data) return false;
+    const parentRow = toAssessment(updated.data as Record<string, unknown>);
+    onUpdate(course.id, (c) => ({
+      ...c,
+      assessments: c.assessments.map((a) => (a.id === parent.id ? parentRow : a)),
+    }));
+
+    const inserted = await save(() =>
+      supabase()
+        .from("assessments")
+        .insert(
+          parts.map((p, i) => ({
+            course_id: course.id,
+            parent_id: parent.id,
+            name: p.name,
+            weight: p.weight,
+            position: i,
+          })),
+        )
+        .select(ASSESSMENT_COLUMNS),
+    );
+    if (!inserted.ok || !inserted.data) return false;
+    const rows = (inserted.data as Record<string, unknown>[]).map(toAssessment);
+    onUpdate(course.id, (c) => ({ ...c, assessments: [...c.assessments, ...rows] }));
+    return true;
+  }
+
+  const editorActions: EditorActions = {
+    update: updateAssessment,
+    remove: deleteAssessment,
+    split: splitAssessment,
+  };
 
   async function deleteCourse() {
     const { ok } = await save(() => supabase().from("courses").delete().eq("id", course.id));
@@ -134,41 +177,42 @@ export function CourseCard({
           </span>
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-700">
             <span>Target {formatGrade(course.target_grade)}</span>
-            <StatusBadge result={result} />
+            {!open && <StatusBadge result={result} />}
           </span>
-          <span className="text-sm text-gray-800">{result.headline}</span>
+          {!open && <span className="text-sm text-gray-800">{result.headline}</span>}
         </button>
       </h3>
 
       {open && (
-        <div id={panelId} className="space-y-6 border-t border-gray-100 px-4 pb-5 pt-4 sm:px-5">
+        <div id={panelId} className="space-y-6 px-4 pb-5 sm:px-5">
+          <ResultPanel result={result} />
           <SaveIndicator status={status} />
 
           <TargetPicker target={course.target_grade} onSave={setTarget} />
 
-          <section aria-labelledby={`${id}-assessments`}>
+          <section aria-labelledby={`${id}-assessments`} className="space-y-3">
             <h4 id={`${id}-assessments`} className="font-semibold text-gray-900">
               Assessments
             </h4>
             {topLevel.length === 0 ? (
-              <p className="mt-2 text-sm text-gray-700">
-                No assessments yet. Add them from your syllabus below.
+              <p className="text-sm text-gray-700">
+                No assessments yet. Add them from your syllabus.
               </p>
             ) : (
-              <ul className="mt-3 space-y-3">
-                {topLevel.map((a) => (
-                  <AssessmentRow
-                    key={a.id}
-                    assessment={a}
-                    onSave={(patch) => updateAssessment(a.id, patch)}
-                    onDelete={() => deleteAssessment(a.id)}
-                  />
-                ))}
-              </ul>
+              <AssessmentList
+                idPrefix={id}
+                assessments={course.assessments}
+                editingId={editingId}
+                onEdit={(assessmentId) => {
+                  setEditingId(assessmentId);
+                  if (assessmentId) setAdding(false);
+                }}
+                actions={editorActions}
+              />
             )}
             {topLevel.length > 0 && (
               <p
-                className={`mt-3 text-sm font-medium ${
+                className={`text-sm font-medium ${
                   result.weightsOk ? "text-emerald-800" : "text-amber-900"
                 }`}
               >
@@ -176,11 +220,28 @@ export function CourseCard({
                 {weightsMessage(result.totalWeight)}
               </p>
             )}
+            {adding ? (
+              <AddAssessmentForm
+                onAdd={addAssessment}
+                onClose={() => {
+                  setAdding(false);
+                  requestAnimationFrame(() => document.getElementById(`${id}-add`)?.focus());
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                id={`${id}-add`}
+                onClick={() => {
+                  setEditingId(null);
+                  setAdding(true);
+                }}
+                className={linkButton}
+              >
+                + Add assessment
+              </button>
+            )}
           </section>
-
-          <AddAssessmentForm onAdd={addAssessment} />
-
-          <ResultPanel result={result} />
 
           <DeleteCourse name={course.name} onConfirm={deleteCourse} />
         </div>
@@ -273,7 +334,7 @@ function TargetPicker({
   );
 }
 
-function ResultPanel({ result }: { result: ReturnType<typeof computeResult> }) {
+function ResultPanel({ result }: { result: CourseResult }) {
   const big =
     result.outcome === "needed"
       ? { value: result.needed!, label: "needed on what's left" }
@@ -285,14 +346,14 @@ function ResultPanel({ result }: { result: ReturnType<typeof computeResult> }) {
     <section aria-label="Result" className="rounded-xl border border-gray-200 bg-gray-50 p-4 sm:p-5">
       <StatusBadge result={result} />
       {big && (
-        <p className="mt-3 flex items-baseline gap-2">
+        <p className="mt-2 flex items-baseline gap-2">
           <span className="text-5xl font-bold tracking-tight text-gray-900">
             {formatGrade(big.value)}
           </span>
           <span className="text-sm text-gray-700">{big.label}</span>
         </p>
       )}
-      <p aria-live="polite" className="mt-3 text-lg font-semibold text-gray-900">
+      <p aria-live="polite" className="mt-2 text-lg font-semibold text-gray-900">
         {result.headline}
       </p>
       {result.details.map((d) => (

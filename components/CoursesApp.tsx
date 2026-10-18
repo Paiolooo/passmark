@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { COURSE_COLUMNS, type Course, toCourse } from "@/lib/courses";
-import { computeResult, countedItems, summarize } from "@/lib/grades";
+import { computeCourse, summarize } from "@/lib/grades";
 import { CourseCard } from "./CourseCard";
 import { friendlyDbError } from "./useSaver";
 
@@ -26,9 +26,7 @@ export function CoursesApp({
 
   const summary = useMemo(
     () =>
-      summarize(
-        courses.map((c) => computeResult(countedItems(c.assessments), c.target_grade)),
-      ),
+      summarize(courses.map((c) => computeCourse(c.assessments, c.target_grade))),
     [courses],
   );
 

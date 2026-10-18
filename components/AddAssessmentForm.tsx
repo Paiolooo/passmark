@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { parseGrade, parseMinGrade, parseWeight } from "@/lib/grades";
-import { inputClass } from "./AssessmentRow";
+import { inputClass, linkButton } from "./ui";
 
 const QUICK_NAMES = [
   "Participation",
@@ -24,7 +24,13 @@ export type NewAssessment = {
 type Field = "name" | "weight" | "grade" | "min_grade";
 const EMPTY: Record<Field, string> = { name: "", weight: "", grade: "", min_grade: "" };
 
-export function AddAssessmentForm({ onAdd }: { onAdd: (values: NewAssessment) => Promise<boolean> }) {
+export function AddAssessmentForm({
+  onAdd,
+  onClose,
+}: {
+  onAdd: (values: NewAssessment) => Promise<boolean>;
+  onClose: () => void;
+}) {
   const id = useId();
   const [text, setText] = useState(EMPTY);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
@@ -74,6 +80,7 @@ export function AddAssessmentForm({ onAdd }: { onAdd: (values: NewAssessment) =>
       <input
         ref={options.ref}
         id={`${id}-${key}`}
+        autoFocus={key === "name"}
         type="text"
         inputMode={options.decimal ? "decimal" : undefined}
         autoComplete="off"
@@ -97,6 +104,12 @@ export function AddAssessmentForm({ onAdd }: { onAdd: (values: NewAssessment) =>
       onSubmit={submit}
       noValidate
       aria-labelledby={`${id}-title`}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        }
+      }}
       className="rounded-xl border border-dashed border-gray-300 p-3"
     >
       <h4 id={`${id}-title`} className="font-semibold text-gray-900">
@@ -129,14 +142,19 @@ export function AddAssessmentForm({ onAdd }: { onAdd: (values: NewAssessment) =>
         {field("grade", "Grade", { placeholder: "not graded", decimal: true })}
         {field("min_grade", "Minimum", { placeholder: "none", decimal: true })}
       </div>
-      <button
-        type="submit"
-        disabled={pending}
-        aria-busy={pending}
-        className="mt-3 min-h-11 w-full rounded-lg border border-emerald-700 bg-white px-4 font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-70 sm:w-auto"
-      >
-        {pending ? "Adding…" : "Add assessment"}
-      </button>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="submit"
+          disabled={pending}
+          aria-busy={pending}
+          className="min-h-11 rounded-lg border border-emerald-700 bg-white px-4 font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-70"
+        >
+          {pending ? "Adding…" : "Add assessment"}
+        </button>
+        <button type="button" onClick={onClose} className={linkButton}>
+          Done
+        </button>
+      </div>
     </form>
   );
 }

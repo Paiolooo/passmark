@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/supabase/user";
+import { GoToAppLink } from "./GoToAppLink";
 import { LogoutButton } from "./LogoutButton";
 
 export async function SiteHeader() {
@@ -17,12 +18,7 @@ export async function SiteHeader() {
         <nav aria-label="Account" className="flex items-center gap-1 sm:gap-3">
           {user ? (
             <>
-              <Link
-                href="/app"
-                className="flex min-h-11 items-center rounded-md px-3 text-sm font-medium text-emerald-700 underline-offset-4 hover:underline"
-              >
-                Go to app
-              </Link>
+              <GoToAppLink />
               <LogoutButton />
             </>
           ) : (
