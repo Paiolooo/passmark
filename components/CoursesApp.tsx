@@ -26,6 +26,8 @@ export function CoursesApp({
   const [announcement, setAnnouncement] = useState("");
   const [openedId, setOpenedId] = useState<string | null>(null);
   const [importWarning, setImportWarning] = useState<string | null>(null);
+  // Remembered only in memory, never in browser storage.
+  const [plannerTipDismissed, setPlannerTipDismissed] = useState(false);
   const picker = usePdfPicker();
   const busy = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -197,6 +199,8 @@ export function CoursesApp({
                 key={course.id}
                 course={course}
                 initiallyOpen={course.id === openedId}
+                showPlannerTip={!plannerTipDismissed}
+                onDismissPlannerTip={() => setPlannerTipDismissed(true)}
                 onUpdate={updateCourse}
                 onDeleted={removeCourse}
               />

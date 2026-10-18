@@ -14,6 +14,7 @@ import {
 import type { CourseUpdater } from "./CoursesApp";
 import { AddAssessmentForm, type NewAssessment } from "./AddAssessmentForm";
 import { AssessmentList } from "./AssessmentList";
+import { GradePlanner, type PlanLocks, hasPlannableRows } from "./GradePlanner";
 import type { EditorActions } from "./AssessmentEditor";
 import type { NewPart } from "./SplitForm";
 import { StatusBadge } from "./StatusBadge";
@@ -34,11 +35,15 @@ const sameNumber = (a: number, b: number) => Math.abs(a - b) < 0.001;
 export function CourseCard({
   course,
   initiallyOpen = false,
+  showPlannerTip,
+  onDismissPlannerTip,
   onUpdate,
   onDeleted,
 }: {
   course: Course;
   initiallyOpen?: boolean;
+  showPlannerTip: boolean;
+  onDismissPlannerTip: () => void;
   onUpdate: CourseUpdater;
   onDeleted: (id: string) => void;
 }) {
@@ -50,6 +55,19 @@ export function CourseCard({
   const { status, save } = useSaver();
   const picker = usePdfPicker();
   const toggleRef = useRef<HTMLButtonElement>(null);
+  const plannerRef = useRef<HTMLHeadingElement>(null);
+  // Plans are what-ifs: kept in memory while the page is open, never saved.
+  const [planLocks, setPlanLocks] = useState<PlanLocks>({});
+  const goToPlanner = useRef(false);
+  const canPlan = useMemo(() => hasPlannableRows(course.assessments), [course.assessments]);
+
+  // "Plan grades →" opens the course straight at the planner.
+  useEffect(() => {
+    if (!open || !goToPlanner.current) return;
+    goToPlanner.current = false;
+    plannerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    plannerRef.current?.focus({ preventScroll: true });
+  }, [open]);
 
   // A course just created from a syllabus opens and scrolls into view.
   useEffect(() => {
@@ -197,10 +215,37 @@ export function CourseCard({
           {!open && <span className="text-sm text-gray-800">{result.headline}</span>}
         </button>
       </h3>
+      {!open && canPlan && (
+        <div className="-mt-2 px-4 pb-3 sm:px-5">
+          <button
+            type="button"
+            onClick={() => {
+              goToPlanner.current = true;
+              setOpen(true);
+            }}
+            className={linkButton}
+          >
+            Plan grades <span aria-hidden="true">→</span>
+            <span className="sr-only"> for {course.name}</span>
+          </button>
+        </div>
+      )}
 
       {open && (
         <div id={panelId} className="space-y-6 px-4 pb-5 sm:px-5">
           <ResultPanel result={result} />
+          {canPlan && (
+            <GradePlanner
+              ref={plannerRef}
+              idPrefix={id}
+              assessments={course.assessments}
+              target={course.target_grade}
+              locks={planLocks}
+              onLocksChange={setPlanLocks}
+              showTip={showPlannerTip}
+              onDismissTip={onDismissPlannerTip}
+            />
+          )}
           <SaveIndicator status={status} />
 
           <TargetPicker target={course.target_grade} onSave={setTarget} />
