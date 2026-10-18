@@ -67,6 +67,27 @@ create policy "courses_delete_own" on public.courses
   for delete to authenticated
   using ((select auth.uid()) = user_id);
 
+-- Checks that a parent assessment belongs to the current user and to the given course.
+-- SECURITY DEFINER so the assessments policies can use it without querying
+-- assessments under RLS again (which Postgres reports as infinite recursion).
+create or replace function public.is_own_parent_assessment(p_parent_id uuid, p_course_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.assessments p
+    where p.id = p_parent_id
+      and p.user_id = auth.uid()
+      and p.course_id = p_course_id
+  );
+$$;
+
+revoke execute on function public.is_own_parent_assessment(uuid, uuid) from public, anon;
+grant execute on function public.is_own_parent_assessment(uuid, uuid) to authenticated;
+
 -- assessments: own rows only, and the course (and parent, if any) must be yours too.
 drop policy if exists "assessments_select_own" on public.assessments;
 drop policy if exists "assessments_insert_own" on public.assessments;
@@ -88,12 +109,7 @@ create policy "assessments_insert_own" on public.assessments
     )
     and (
       assessments.parent_id is null
-      or exists (
-        select 1 from public.assessments p
-        where p.id = assessments.parent_id
-          and p.user_id = (select auth.uid())
-          and p.course_id = assessments.course_id
-      )
+      or public.is_own_parent_assessment(assessments.parent_id, assessments.course_id)
     )
   );
 
@@ -109,12 +125,7 @@ create policy "assessments_update_own" on public.assessments
     )
     and (
       assessments.parent_id is null
-      or exists (
-        select 1 from public.assessments p
-        where p.id = assessments.parent_id
-          and p.user_id = (select auth.uid())
-          and p.course_id = assessments.course_id
-      )
+      or public.is_own_parent_assessment(assessments.parent_id, assessments.course_id)
     )
   );
 
