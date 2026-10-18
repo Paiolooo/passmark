@@ -8,9 +8,11 @@ import {
   type CourseResult,
   computeCourse,
   formatGrade,
+  formatWeight,
   parseTarget,
   weightsMessage,
 } from "@/lib/grades";
+import { parseCredits } from "@/lib/gpa";
 import type { CourseUpdater } from "./CoursesApp";
 import { AddAssessmentForm, type NewAssessment } from "./AddAssessmentForm";
 import { AssessmentList } from "./AssessmentList";
@@ -22,6 +24,7 @@ import { SyllabusImport } from "./SyllabusImport";
 import {
   dangerButton,
   dangerFilledButton,
+  inputClass,
   linkButton,
   primaryButton,
   secondaryButton,
@@ -96,6 +99,14 @@ export function CourseCard({
       supabase().from("courses").update({ target_grade: value }).eq("id", course.id).select("id").single(),
     );
     if (ok) onUpdate(course.id, (c) => ({ ...c, target_grade: value }));
+    return ok;
+  }
+
+  async function setCredits(value: number | null) {
+    const { ok } = await save(() =>
+      supabase().from("courses").update({ credits: value }).eq("id", course.id).select("id").single(),
+    );
+    if (ok) onUpdate(course.id, (c) => ({ ...c, credits: value }));
     return ok;
   }
 
@@ -373,6 +384,7 @@ export function CourseCard({
           </section>
 
           <TargetPicker target={course.target_grade} onSave={setTarget} />
+          <CreditsField credits={course.credits} onSave={setCredits} />
 
           <div className="border-t border-gray-100 pt-5">
             <DeleteCourse name={course.name} onConfirm={deleteCourse} />
@@ -473,6 +485,63 @@ const TONE_TEXT: Record<CourseResult["tone"], string> = {
   bad: "text-red-800",
   neutral: "text-gray-900",
 };
+
+/** Credits (ECTS) for the GPA: optional; saved when you leave the field. */
+function CreditsField({
+  credits,
+  onSave,
+}: {
+  credits: number | null;
+  onSave: (value: number | null) => Promise<boolean>;
+}) {
+  const id = useId();
+  const [text, setText] = useState(credits === null ? "" : formatWeight(credits));
+  const [error, setError] = useState<string | null>(null);
+
+  async function commit() {
+    const value = text.trim() === "" ? null : parseCredits(text);
+    if (text.trim() !== "" && value === null) {
+      setError("Use a number above 0, e.g. 6 or 7,5.");
+      return;
+    }
+    setError(null);
+    if (value !== credits) await onSave(value);
+  }
+
+  return (
+    <div>
+      <label htmlFor={`${id}-credits`} className={sectionHeading}>
+        Credits (ECTS)
+      </label>
+      <p id={`${id}-credits-hint`} className="text-sm text-gray-700">
+        Used for your GPA. Optional.
+      </p>
+      <input
+        id={`${id}-credits`}
+        type="text"
+        inputMode="decimal"
+        placeholder="e.g. 6"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
+        }}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={`${id}-credits-hint${error ? ` ${id}-credits-error` : ""}`}
+        className={`${inputClass} w-28`}
+      />
+      {error && (
+        <p id={`${id}-credits-error`} role="alert" className="mt-1 text-sm text-red-700">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function ResultPanel({ result }: { result: CourseResult }) {
   const big =

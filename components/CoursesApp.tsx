@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { COURSE_COLUMNS, type Course, toCourse } from "@/lib/courses";
 import { computeCourse, summarize } from "@/lib/grades";
 import { CourseCard } from "./CourseCard";
+import { type GpaData, GpaPanel } from "./GpaPanel";
 import { SyllabusImport } from "./SyllabusImport";
 import { dangerButton, primaryButton, secondaryButton } from "./ui";
 import { usePdfPicker } from "./usePdfPicker";
@@ -15,9 +16,11 @@ export type CourseUpdater = (id: string, update: (course: Course) => Course) => 
 export function CoursesApp({
   initialCourses,
   loadError,
+  gpa,
 }: {
   initialCourses: Course[];
   loadError: string | null;
+  gpa: GpaData;
 }) {
   const [courses, setCourses] = useState<Course[]>(initialCourses);
   const [name, setName] = useState("");
@@ -212,6 +215,8 @@ export function CoursesApp({
           </ul>
         )}
       </section>
+
+      <GpaPanel courses={courses} data={gpa} />
     </main>
   );
 }

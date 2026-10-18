@@ -49,3 +49,37 @@ export function toCourse(row: Row): Course {
     assessments: assessments.map(toAssessment),
   };
 }
+
+// ─── Cumulative GPA data ──────────────────────────────────────────────────
+
+export const PROFILE_COLUMNS = "current_year, current_semester, prior_gpa, prior_credits";
+export const PAST_SEMESTER_COLUMNS = "id, label, gpa, credits, position";
+
+export type Profile = {
+  current_year: number | null;
+  current_semester: number | null;
+  prior_gpa: number | null;
+  prior_credits: number | null;
+};
+
+export type PastSemesterRow = { id: string; label: string; gpa: number; credits: number; position: number };
+
+export function toProfile(row: Row | null): Profile | null {
+  if (!row) return null;
+  return {
+    current_year: numOrNull(row.current_year),
+    current_semester: numOrNull(row.current_semester),
+    prior_gpa: numOrNull(row.prior_gpa),
+    prior_credits: numOrNull(row.prior_credits),
+  };
+}
+
+export function toPastSemester(row: Row): PastSemesterRow {
+  return {
+    id: String(row.id),
+    label: String(row.label),
+    gpa: num(row.gpa),
+    credits: num(row.credits),
+    position: num(row.position ?? 0),
+  };
+}
