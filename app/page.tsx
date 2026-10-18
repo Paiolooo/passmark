@@ -8,7 +8,7 @@ import {
 
 const STEPS = [
   { title: "Add your course.", text: "Just type its name." },
-  { title: "Enter the weights from your syllabus.", text: "Final exam, midterm, participation…" },
+  { title: "Import your syllabus PDF or type the weights.", text: "Final exam, midterm, participation…" },
   {
     title: "Add grades as they come in and see exactly what you need.",
     text: "One clear number for what's left.",

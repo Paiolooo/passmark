@@ -5,6 +5,9 @@ import { createClient } from "@/lib/supabase/client";
 import { COURSE_COLUMNS, type Course, toCourse } from "@/lib/courses";
 import { computeCourse, summarize } from "@/lib/grades";
 import { CourseCard } from "./CourseCard";
+import { SyllabusImport } from "./SyllabusImport";
+import { secondaryButton } from "./ui";
+import { usePdfPicker } from "./usePdfPicker";
 import { friendlyDbError } from "./useSaver";
 
 export type CourseUpdater = (id: string, update: (course: Course) => Course) => void;
@@ -21,6 +24,9 @@ export function CoursesApp({
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const [openedId, setOpenedId] = useState<string | null>(null);
+  const [importWarning, setImportWarning] = useState<string | null>(null);
+  const picker = usePdfPicker();
   const busy = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -121,6 +127,46 @@ export function CoursesApp({
         </p>
       </form>
 
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-sm text-gray-700">Have the syllabus?</span>
+        <button
+          type="button"
+          onClick={() => {
+            setImportWarning(null);
+            picker.open();
+          }}
+          className={secondaryButton}
+        >
+          Import syllabus PDF
+        </button>
+        {picker.input}
+      </div>
+
+      {picker.file && (
+        <div className="mt-4">
+          <SyllabusImport
+            file={picker.file}
+            mode="new"
+            onSaved={(course, warning) => {
+              picker.clear();
+              setImportWarning(warning);
+              setCourses((prev) => [course, ...prev]);
+              setOpenedId(course.id);
+              setAnnouncement(`Course “${course.name}” created from your syllabus.`);
+            }}
+            onCancel={() => picker.clear()}
+            onChooseAnother={() => picker.open()}
+            onManual={() => picker.clear()}
+          />
+        </div>
+      )}
+
+      {importWarning && (
+        <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {importWarning}
+        </p>
+      )}
+
       {loadError && (
         <div role="alert" className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-red-900">
           <p className="font-semibold">We couldn&apos;t load your courses.</p>
@@ -150,6 +196,7 @@ export function CoursesApp({
               <CourseCard
                 key={course.id}
                 course={course}
+                initiallyOpen={course.id === openedId}
                 onUpdate={updateCourse}
                 onDeleted={removeCourse}
               />

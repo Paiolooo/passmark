@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ASSESSMENT_COLUMNS, type Course, toAssessment } from "@/lib/courses";
 import {
@@ -17,7 +17,9 @@ import { AssessmentList } from "./AssessmentList";
 import type { EditorActions } from "./AssessmentEditor";
 import type { NewPart } from "./SplitForm";
 import { StatusBadge } from "./StatusBadge";
-import { linkButton } from "./ui";
+import { SyllabusImport } from "./SyllabusImport";
+import { linkButton, primaryButton, secondaryButton } from "./ui";
+import { usePdfPicker } from "./usePdfPicker";
 import { SaveIndicator, useSaver } from "./useSaver";
 
 const TARGETS = [
@@ -31,18 +33,30 @@ const sameNumber = (a: number, b: number) => Math.abs(a - b) < 0.001;
 
 export function CourseCard({
   course,
+  initiallyOpen = false,
   onUpdate,
   onDeleted,
 }: {
   course: Course;
+  initiallyOpen?: boolean;
   onUpdate: CourseUpdater;
   onDeleted: (id: string) => void;
 }) {
   const id = useId();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initiallyOpen);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [importWarning, setImportWarning] = useState<string | null>(null);
   const { status, save } = useSaver();
+  const picker = usePdfPicker();
+  const toggleRef = useRef<HTMLButtonElement>(null);
+
+  // A course just created from a syllabus opens and scrolls into view.
+  useEffect(() => {
+    if (!initiallyOpen) return;
+    toggleRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    toggleRef.current?.focus({ preventScroll: true });
+  }, [initiallyOpen]);
 
   const result = useMemo(
     () => computeCourse(course.assessments, course.target_grade),
@@ -163,6 +177,7 @@ export function CourseCard({
     >
       <h3>
         <button
+          ref={toggleRef}
           type="button"
           aria-expanded={open}
           aria-controls={panelId}
@@ -194,10 +209,47 @@ export function CourseCard({
             <h4 id={`${id}-assessments`} className="font-semibold text-gray-900">
               Assessments
             </h4>
-            {topLevel.length === 0 ? (
-              <p className="text-sm text-gray-700">
-                No assessments yet. Add them from your syllabus.
-              </p>
+            {picker.input}
+            {picker.file ? (
+              <SyllabusImport
+                file={picker.file}
+                mode="fill"
+                courseId={course.id}
+                onSaved={(saved, warning) => {
+                  picker.clear();
+                  setImportWarning(warning);
+                  onUpdate(course.id, () => saved);
+                }}
+                onCancel={() => picker.clear()}
+                onChooseAnother={() => picker.open()}
+                onManual={() => {
+                  picker.clear();
+                  setAdding(true);
+                }}
+              />
+            ) : topLevel.length === 0 ? (
+              !adding && (
+                <div className="rounded-xl border border-dashed border-gray-300 p-4">
+                  <p className="text-sm text-gray-700">
+                    No assessments yet. Import them from your syllabus PDF or add them by hand.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImportWarning(null);
+                        picker.open();
+                      }}
+                      className={primaryButton}
+                    >
+                      Import syllabus PDF
+                    </button>
+                    <button type="button" onClick={() => setAdding(true)} className={secondaryButton}>
+                      Add manually
+                    </button>
+                  </div>
+                </div>
+              )
             ) : (
               <AssessmentList
                 idPrefix={id}
@@ -220,7 +272,12 @@ export function CourseCard({
                 {weightsMessage(result.totalWeight)}
               </p>
             )}
-            {adding ? (
+            {importWarning && (
+              <p role="alert" className="text-sm text-red-700">
+                {importWarning}
+              </p>
+            )}
+            {picker.file ? null : adding ? (
               <AddAssessmentForm
                 onAdd={addAssessment}
                 onClose={() => {
@@ -228,7 +285,7 @@ export function CourseCard({
                   requestAnimationFrame(() => document.getElementById(`${id}-add`)?.focus());
                 }}
               />
-            ) : (
+            ) : topLevel.length === 0 ? null : (
               <button
                 type="button"
                 id={`${id}-add`}
