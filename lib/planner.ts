@@ -1,14 +1,10 @@
 // "Plan your remaining grades": try a grade on one assessment and see what the rest need.
 // Pure functions only. Plans are never saved: they are what-ifs, not grades.
-import {
-  type Assessment,
-  PASS_GRADE,
-  buildCourseModel,
-  round1,
-  roundUp1,
-} from "./grades";
+import { type Assessment, PASS_GRADE, buildCourseModel, round1 } from "./grades";
 
 const EPS = 1e-9;
+/** Tolerance when comparing a projection with the target. */
+const TOLERANCE = 1e-6;
 
 /** One slider: an assessment (or the open slots of a "best K of N" group) without a grade. */
 export type PlanRow = {
@@ -27,14 +23,8 @@ export type PlanInput = {
   totalWeight: number;
 };
 
-export type Plan = {
-  values: Record<string, number>;
-  /** Rows at 10 that would need more than 10. */
-  short: string[];
-  projected: number;
-  reachesTarget: boolean;
-  passes: boolean;
-};
+/** Planned grade per row key. Kept exact; shown rounded up to 1 decimal. */
+export type PlanValues = Record<string, number>;
 
 /** The sliders for a course: ungraded counted items, grouped by name (best-of slots share one). */
 export function planInput(assessments: Assessment[]): PlanInput {
@@ -60,97 +50,119 @@ export function planInput(assessments: Assessment[]): PlanInput {
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 const lowest = (r: PlanRow) => r.minGrade ?? 0;
 
-/**
- * Fills the rows you didn't set ("auto") with the same grade, the lowest that still reaches the
- * target, rounded up to 1 decimal, never below a row's minimum and never above 10.
- */
-export function solvePlan(input: PlanInput, locks: Record<string, number>, target: number): Plan {
-  const { rows, points, totalWeight: T } = input;
-  const values: Record<string, number> = {};
-  const free = rows.filter((r) => !(r.key in locks));
-  let short: string[] = [];
-
-  let fixed = points;
-  for (const r of rows) {
-    if (r.key in locks) {
-      values[r.key] = clamp(locks[r.key], lowest(r), 10);
-      fixed += r.weight * values[r.key];
-    }
-  }
-
-  if (free.length > 0) {
-    const need = target * T - fixed;
-    const reach = (x: number) => free.reduce((s, r) => s + r.weight * clamp(x, lowest(r), 10), 0);
-    let x: number;
-    if (reach(10) < need - EPS) {
-      x = 10;
-      short = free.map((r) => r.key);
-    } else {
-      let lo = 0;
-      let hi = 10;
-      for (let i = 0; i < 60; i++) {
-        const mid = (lo + hi) / 2;
-        if (reach(mid) >= need - EPS) hi = mid;
-        else lo = mid;
-      }
-      x = Math.min(10, roundUp1(hi));
-    }
-    for (const r of free) values[r.key] = clamp(x, lowest(r), 10);
-  }
-
-  const projected =
-    T > EPS ? (points + rows.reduce((s, r) => s + r.weight * values[r.key], 0)) / T : 0;
-  return {
-    values,
-    short,
-    projected,
-    reachesTarget: round1(projected) >= round1(target),
-    passes: round1(projected) >= PASS_GRADE,
-  };
+/** Sum of weight × planned grade. */
+function plannedPoints(input: PlanInput, values: PlanValues): number {
+  return input.rows.reduce((s, r) => s + r.weight * values[r.key], 0);
 }
 
-// ─── Your choices ("locks"), oldest change first ──────────────────────────
-
-/** Rows you set yourself, in the order you last changed them (oldest first). */
-export type PlanLock = { key: string; value: number };
-
-/** Locks as a key → value map, for solvePlan. */
-export function lockValues(locks: PlanLock[]): Record<string, number> {
-  return Object.fromEntries(locks.map((l) => [l.key, l.value]));
-}
-
-/** Drops locks for rows that no longer exist (graded or removed since). */
-export function activeLocks(rows: PlanRow[], locks: PlanLock[]): PlanLock[] {
-  // With a single row there is nothing to choose: its value is simply what you need.
-  if (rows.length < 2) return [];
-  return locks.filter((l) => rows.some((r) => r.key === l.key));
+/** Projected final grade with these planned grades. */
+export function projectedGrade(input: PlanInput, values: PlanValues): number {
+  return input.totalWeight > EPS ? (input.points + plannedPoints(input, values)) / input.totalWeight : 0;
 }
 
 /**
- * You set `key` to `value`. It becomes your newest choice. There is always at least one auto
- * row: if every row would be your choice, the one you set longest ago becomes auto again.
+ * The starting plan: the same grade on every row, the lowest that reaches the target,
+ * never below a row's minimum and never above 10.
  */
-export function setPlanValue(
-  rows: PlanRow[],
-  locks: PlanLock[],
+export function evenSplit(input: PlanInput, target: number): PlanValues {
+  const need = target * input.totalWeight - input.points;
+  const reach = (x: number) =>
+    input.rows.reduce((s, r) => s + r.weight * clamp(x, lowest(r), 10), 0);
+  let lo = 0;
+  let hi = 10;
+  for (let i = 0; i < 80; i++) {
+    const mid = (lo + hi) / 2;
+    if (reach(mid) >= need) hi = mid;
+    else lo = mid;
+  }
+  return Object.fromEntries(input.rows.map((r) => [r.key, clamp(hi, lowest(r), 10)]));
+}
+
+/**
+ * Shifts every row that isn't fixed by the same amount δ so the plan reaches the target,
+ * keeping the differences between them. A row that hits 10, 0 or its minimum stays there
+ * and the rest of the shift is spread over the other rows, until it settles.
+ */
+export function shiftToTarget(
+  input: PlanInput,
+  values: PlanValues,
+  fixed: string[],
+  target: number,
+): PlanValues {
+  const next: PlanValues = { ...values };
+  let remaining = target * input.totalWeight - input.points - plannedPoints(input, next);
+  let active = input.rows.filter((r) => !fixed.includes(r.key));
+
+  while (active.length > 0 && Math.abs(remaining) > EPS) {
+    const weight = active.reduce((s, r) => s + r.weight, 0);
+    if (weight <= EPS) break;
+    const delta = remaining / weight;
+    const clamped = active.filter((r) => {
+      const v = next[r.key] + delta;
+      return v > 10 + EPS || v < lowest(r) - EPS;
+    });
+    if (clamped.length === 0) {
+      for (const r of active) next[r.key] += delta;
+      break;
+    }
+    for (const r of clamped) {
+      const bound = delta > 0 ? 10 : lowest(r);
+      remaining -= r.weight * (bound - next[r.key]);
+      next[r.key] = bound;
+    }
+    active = active.filter((r) => !clamped.includes(r));
+  }
+  return next;
+}
+
+/**
+ * You set row `key` to `value` (by dragging or typing). Only that row and your pinned rows stay
+ * fixed; every other row shifts together to keep the plan on target.
+ */
+export function moveRow(
+  input: PlanInput,
+  values: PlanValues,
+  pinned: string[],
   key: string,
   value: number,
-): { locks: PlanLock[]; released: string | null } {
-  if (rows.length < 2) return { locks: [], released: null };
-  const next = [...activeLocks(rows, locks).filter((l) => l.key !== key), { key, value }];
-  if (next.length >= rows.length) {
-    const [oldest, ...rest] = next;
-    return { locks: rest, released: oldest.key };
-  }
-  return { locks: next, released: null };
+  target: number,
+): PlanValues {
+  const row = input.rows.find((r) => r.key === key);
+  if (!row) return values;
+  const next = { ...values, [key]: clamp(value, lowest(row), 10) };
+  return shiftToTarget(input, next, [...pinned, key], target);
 }
 
-/** Makes `key` auto again. */
-export function unlockRow(locks: PlanLock[], key: string): PlanLock[] {
-  return locks.filter((l) => l.key !== key);
-}
+export type PlanStatus = {
+  projected: number;
+  reachesTarget: boolean;
+  passes: boolean;
+  /** The target can't be reached: the adjustable rows are all at 10. */
+  unreachable: boolean;
+  /** Adjustable rows that are at 10 while the target is out of reach (shown in red). */
+  short: string[];
+  /** Even the lowest allowed grades on the adjustable rows reach the target. */
+  secured: boolean;
+};
 
-/** "Fit to target": keeps only your most recent choice; everything else becomes auto. */
-export function fitToTarget(locks: PlanLock[]): PlanLock[] {
-  return locks.slice(-1);
+/** How a plan stands against the target. `fixed` = rows that don't adjust (pinned or being moved). */
+export function planStatus(
+  input: PlanInput,
+  values: PlanValues,
+  fixed: string[],
+  target: number,
+): PlanStatus {
+  const projected = projectedGrade(input, values);
+  const adjustable = input.rows.filter((r) => !fixed.includes(r.key));
+  const unreachable = projected < target - TOLERANCE;
+  const secured =
+    projected > target + TOLERANCE && adjustable.every((r) => values[r.key] <= lowest(r) + EPS);
+  return {
+    projected,
+    reachesTarget: projected >= target - TOLERANCE,
+    passes: round1(projected) >= PASS_GRADE,
+    unreachable,
+    short: unreachable ? adjustable.filter((r) => values[r.key] >= 10 - EPS).map((r) => r.key) : [],
+    secured,
+  };
 }

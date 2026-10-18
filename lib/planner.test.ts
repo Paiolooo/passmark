@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Assessment } from "./grades";
 import {
-  type PlanLock,
-  activeLocks,
-  fitToTarget,
-  lockValues,
+  type PlanValues,
+  evenSplit,
+  moveRow,
   planInput,
-  setPlanValue,
-  solvePlan,
-  unlockRow,
+  planStatus,
+  projectedGrade,
+  shiftToTarget,
 } from "./planner";
 
 let seq = 0;
@@ -26,16 +25,13 @@ const row = (over: Partial<Assessment>): Assessment => ({
   ...over,
 });
 
-// Participation 10% graded 8; Intermediate Tests 30%; Final Exam 60% (min 4.5).
-const course = [
-  row({ name: "Participation", weight: 10, grade: 8 }),
-  row({ name: "Intermediate Tests", weight: 30 }),
-  row({ name: "Final Exam", weight: 60, min_grade: 4.5 }),
-];
-
 describe("planInput", () => {
-  it("has one slider per ungraded assessment, with minimums", () => {
-    const input = planInput(course);
+  it("has one row per ungraded assessment, with minimums and earned points", () => {
+    const input = planInput([
+      row({ name: "Participation", weight: 10, grade: 8 }),
+      row({ name: "Intermediate Tests", weight: 30 }),
+      row({ name: "Final Exam", weight: 60, min_grade: 4.5 }),
+    ]);
     expect(input.rows).toEqual([
       { key: "Intermediate Tests", name: "Intermediate Tests", weight: 30, minGrade: null },
       { key: "Final Exam", name: "Final Exam", weight: 60, minGrade: 4.5 },
@@ -44,7 +40,7 @@ describe("planInput", () => {
     expect(input.totalWeight).toBe(100);
   });
 
-  it("groups the open slots of a best-of into one slider", () => {
+  it("groups the open slots of a best-of into one row", () => {
     const final = row({ name: "Final Exam", weight: 80 });
     const parent = row({ name: "Quizzes", weight: 20, best_of: 4 });
     const parts = [8, null, null, null, null].map((grade, i) =>
@@ -58,167 +54,189 @@ describe("planInput", () => {
     expect(input.points).toBe(40);
   });
 
-  it("has no sliders when everything is graded", () => {
+  it("has no rows when everything is graded", () => {
     expect(planInput([row({ name: "Exam", weight: 100, grade: 7 })]).rows).toEqual([]);
   });
 });
 
-describe("solvePlan", () => {
-  const input = planInput(course);
+// Four ungraded rows. Participation 10% is graded 8 (80 points).
+const input = planInput([
+  row({ name: "Participation", weight: 10, grade: 8 }),
+  row({ name: "Tests", weight: 20 }),
+  row({ name: "Project", weight: 20 }),
+  row({ name: "Presentation", weight: 10 }),
+  row({ name: "Final Exam", weight: 40, min_grade: 4 }),
+]);
+const KEYS = ["Tests", "Project", "Presentation", "Final Exam"];
+const TARGET = 7;
 
-  it("starts with the same grade everywhere: what you need on average", () => {
-    const plan = solvePlan(input, {}, 7);
-    // (700 − 80) / 90 = 6.888… → 6.9
-    expect(plan.values).toEqual({ "Intermediate Tests": 6.9, "Final Exam": 6.9 });
-    expect(plan.short).toEqual([]);
-    expect(plan.reachesTarget).toBe(true);
-    expect(plan.passes).toBe(true);
+describe("evenSplit", () => {
+  it("starts with the same grade everywhere, exactly on target", () => {
+    const v = evenSplit(input, TARGET);
+    // (700 − 80) / 90 = 6.888…
+    for (const k of KEYS) expect(v[k]).toBeCloseTo(620 / 90, 6);
+    expect(projectedGrade(input, v)).toBeCloseTo(TARGET, 6);
   });
 
-  it("setting one grade adjusts the others", () => {
-    const plan = solvePlan(input, { "Final Exam": 6 }, 7);
-    // (700 − 80 − 360) / 30 = 8.666… → 8.7
-    expect(plan.values).toEqual({ "Intermediate Tests": 8.7, "Final Exam": 6 });
-    expect(plan.reachesTarget).toBe(true);
+  it("respects minimums", () => {
+    const v = evenSplit(input, 3);
+    expect(v["Final Exam"]).toBe(4);
+    expect(projectedGrade(input, v)).toBeGreaterThanOrEqual(3 - 1e-9);
   });
 
-  it("a high plan lowers the others, but never below a minimum", () => {
-    const plan = solvePlan(input, { "Intermediate Tests": 10 }, 5);
-    // (500 − 80 − 300) / 60 = 2 → but the Final Exam minimum is 4.5
-    expect(plan.values["Final Exam"]).toBe(4.5);
-    expect(plan.projected).toBeCloseTo((80 + 300 + 270) / 100, 10);
-  });
-
-  it("a locked value below the minimum is raised to the minimum", () => {
-    expect(solvePlan(input, { "Final Exam": 2 }, 5).values["Final Exam"]).toBe(4.5);
-  });
-
-  it("marks rows that would need more than 10", () => {
-    const plan = solvePlan(input, { "Final Exam": 5 }, 9);
-    // (900 − 80 − 300) / 30 = 17.3 → shown at 10, not enough
-    expect(plan.values["Intermediate Tests"]).toBe(10);
-    expect(plan.short).toEqual(["Intermediate Tests"]);
-    expect(plan.reachesTarget).toBe(false);
-    // (80 + 300 + 300) / 100 = 6.8
-    expect(plan.projected).toBeCloseTo(6.8, 10);
-    expect(plan.passes).toBe(true);
-  });
-
-  it("with every row set by you, the projection is just the result", () => {
-    const plan = solvePlan(input, { "Final Exam": 4.5, "Intermediate Tests": 3 }, 7);
-    expect(plan.short).toEqual([]);
-    // (80 + 90 + 270) / 100 = 4.4
-    expect(plan.projected).toBeCloseTo(4.4, 10);
-    expect(plan.reachesTarget).toBe(false);
-    expect(plan.passes).toBe(false);
-  });
-
-  it("never rounds a plan down", () => {
-    const plan = solvePlan(
-      { rows: [{ key: "A", name: "A", weight: 30, minGrade: null }], points: 420, totalWeight: 100 },
-      {},
-      6.5,
-    );
-    // (650 − 420) / 30 = 7.666… → 7.7
-    expect(plan.values.A).toBe(7.7);
+  it("with a single row it is simply what you need", () => {
+    const single = planInput([row({ name: "Midterm", weight: 40, grade: 6 }), row({ name: "Final", weight: 60 })]);
+    // (700 − 240) / 60 = 7.666…
+    expect(evenSplit(single, 7).Final).toBeCloseTo(460 / 60, 6);
   });
 });
 
-// ─── Locks: always at least one auto row ──────────────────────────────────
+describe("moveRow: moving one row moves all the others", () => {
+  // A plan with different grades on every row, on target.
+  const start: PlanValues = shiftToTarget(
+    input,
+    { Tests: 6, Project: 7, Presentation: 8, "Final Exam": 6.5 },
+    [],
+    TARGET,
+  );
 
-describe("choices and auto rows", () => {
-  const three = planInput([
-    row({ name: "Participation", weight: 10, grade: 8 }),
-    row({ name: "Tests", weight: 20 }),
-    row({ name: "Project", weight: 20 }),
-    row({ name: "Final Exam", weight: 50, min_grade: 4 }),
-  ]);
-  const rows = three.rows;
-  const keys = (locks: PlanLock[]) => locks.map((l) => l.key);
-
-  it("a moved row becomes your newest choice", () => {
-    let { locks } = setPlanValue(rows, [], "Final Exam", 6);
-    ({ locks } = setPlanValue(rows, locks, "Tests", 8));
-    expect(keys(locks)).toEqual(["Final Exam", "Tests"]);
-    // Moving an existing choice again makes it the newest.
-    ({ locks } = setPlanValue(rows, locks, "Final Exam", 7));
-    expect(keys(locks)).toEqual(["Tests", "Final Exam"]);
+  it.each([
+    ["first", "Tests"],
+    ["middle", "Presentation"],
+    ["last", "Final Exam"],
+  ])("moving the %s row changes every other unpinned row", (_, key) => {
+    const next = moveRow(input, start, [], key, start[key] + 1, TARGET);
+    expect(next[key]).toBeCloseTo(start[key] + 1, 9);
+    for (const other of KEYS.filter((k) => k !== key)) {
+      expect(next[other]).toBeLessThan(start[other] - 1e-6);
+    }
+    expect(projectedGrade(input, next)).toBeCloseTo(TARGET, 9);
   });
 
-  it("touching every row releases the oldest choice, so one row stays auto", () => {
-    let { locks } = setPlanValue(rows, [], "Tests", 8);
-    ({ locks } = setPlanValue(rows, locks, "Final Exam", 6));
-    const last = setPlanValue(rows, locks, "Project", 9);
-    expect(last.released).toBe("Tests");
-    expect(keys(last.locks)).toEqual(["Final Exam", "Project"]);
-
-    const plan = solvePlan(three, lockValues(last.locks), 7);
-    // Tests is auto again and makes the plan reach the target: (700 − 80 − 300 − 180) / 20 = 7.0
-    expect(plan.values.Tests).toBe(7);
-    expect(plan.reachesTarget).toBe(true);
+  it("keeps the differences between the other rows", () => {
+    const next = moveRow(input, start, [], "Tests", 8, TARGET);
+    const shift = next.Project - start.Project;
+    for (const k of ["Project", "Presentation", "Final Exam"]) {
+      expect(next[k] - start[k]).toBeCloseTo(shift, 9);
+    }
+    // δ = −(change in Tests' points) ÷ sum of the other weights
+    expect(shift).toBeCloseTo((-(8 - start.Tests) * 20) / 70, 9);
   });
 
-  it("whatever order you touch rows in, an auto row is left and the target is reached when possible", () => {
-    const orders = [
-      ["Tests", "Project", "Final Exam", "Tests", "Final Exam", "Project"],
-      ["Final Exam", "Final Exam", "Project", "Tests", "Project"],
-      ["Project", "Tests", "Final Exam", "Project", "Tests", "Final Exam", "Tests"],
+  it("a row moved before is not locked: it adjusts when another row moves", () => {
+    const a = moveRow(input, start, [], "Tests", 8, TARGET);
+    const b = moveRow(input, a, [], "Presentation", 6, TARGET);
+    expect(b.Tests).toBeGreaterThan(8 + 1e-6);
+    expect(projectedGrade(input, b)).toBeCloseTo(TARGET, 9);
+  });
+
+  it("every move, in any order, changes all other rows and stays on target", () => {
+    let v = start;
+    const moves: [string, number][] = [
+      ["Final Exam", 8], ["Tests", 5.5], ["Presentation", 9], ["Project", 6],
+      ["Final Exam", 6], ["Project", 8.5], ["Tests", 7], ["Presentation", 5],
     ];
-    for (const order of orders) {
-      let locks: PlanLock[] = [];
-      order.forEach((key, i) => {
-        ({ locks } = setPlanValue(rows, locks, key, 5 + (i % 4)));
-        expect(locks.length).toBeLessThan(rows.length);
-        expect(keys(locks).at(-1)).toBe(key);
-        const plan = solvePlan(three, lockValues(locks), 7);
-        if (plan.short.length === 0) {
-          expect(plan.reachesTarget).toBe(true);
-          expect(plan.projected).toBeGreaterThanOrEqual(7 - 1e-9);
-        }
-      });
+    for (const [key, value] of moves) {
+      const next = moveRow(input, v, [], key, value, TARGET);
+      for (const other of KEYS.filter((k) => k !== key)) {
+        expect(Math.abs(next[other] - v[other])).toBeGreaterThan(1e-6);
+      }
+      expect(projectedGrade(input, next)).toBeCloseTo(TARGET, 9);
+      v = next;
     }
   });
 
-  it("dragging updates the auto rows live, one value at a time", () => {
-    let locks: PlanLock[] = [];
+  it("dragging step by step updates the others at every step", () => {
+    let v = start;
     const seen: number[] = [];
-    for (const v of [5, 5.5, 6, 6.5, 7, 7.5]) {
-      ({ locks } = setPlanValue(rows, locks, "Final Exam", v));
-      seen.push(solvePlan(three, lockValues(locks), 7).values.Tests);
+    for (const step of [6.6, 6.8, 7, 7.2, 7.4]) {
+      v = moveRow(input, v, [], "Final Exam", step, TARGET);
+      seen.push(v.Tests);
     }
-    // Every step of the drag gives a new, lower value on the auto rows.
-    expect(seen).toEqual([...seen].sort((a, b) => b - a));
     expect(new Set(seen).size).toBe(seen.length);
-    expect(keys(locks)).toEqual(["Final Exam"]);
+    expect(seen).toEqual([...seen].sort((a, b) => b - a));
+  });
+});
+
+describe("clamping and redistribution", () => {
+  it("a row that hits 10 stays there and the rest is spread over the others", () => {
+    const v: PlanValues = { Tests: 9.8, Project: 5, Presentation: 5, "Final Exam": 9 };
+    const next = moveRow(input, v, [], "Final Exam", 6, TARGET);
+    expect(next.Tests).toBe(10);
+    expect(next.Project - 5).toBeCloseTo(next.Presentation - 5, 9);
+    expect(next.Project).toBeGreaterThan(5);
+    expect(projectedGrade(input, next)).toBeCloseTo(TARGET, 9);
   });
 
-  it("with a single ungraded row there are no choices: it is simply what you need", () => {
-    const single = planInput([row({ name: "Midterm", weight: 40, grade: 6 }), row({ name: "Final", weight: 60 })]);
-    const { locks, released } = setPlanValue(single.rows, [], "Final", 9);
-    expect(locks).toEqual([]);
-    expect(released).toBeNull();
-    expect(activeLocks(single.rows, [{ key: "Final", value: 9 }])).toEqual([]);
-    // (700 − 240) / 60 = 7.666… → 7.7
-    expect(solvePlan(single, {}, 7).values.Final).toBe(7.7);
+  it("a row stops at its minimum when the others go down", () => {
+    const v: PlanValues = { Tests: 6, Project: 6, Presentation: 6, "Final Exam": 4.2 };
+    const target = projectedGrade(input, v); // 5.48: this plan is exactly on target
+    const next = moveRow(input, v, [], "Tests", 10, target);
+    // +80 points on Tests: δ = −80 / 70 would take Final Exam to 3.06, so it stops at 4
+    // and Project and Presentation share the rest: −(80 − 8) / 30 = −2.4 each.
+    expect(next["Final Exam"]).toBe(4);
+    expect(next.Project).toBeCloseTo(3.6, 9);
+    expect(next.Presentation).toBeCloseTo(3.6, 9);
+    expect(projectedGrade(input, next)).toBeCloseTo(target, 9);
   });
 
-  it("Fit to target keeps your last change and makes the rest auto", () => {
-    let { locks } = setPlanValue(rows, [], "Tests", 9);
-    ({ locks } = setPlanValue(rows, locks, "Final Exam", 5));
-    expect(keys(fitToTarget(locks))).toEqual(["Final Exam"]);
-    expect(fitToTarget([])).toEqual([]);
-    const plan = solvePlan(three, lockValues(fitToTarget(locks)), 7);
-    expect(plan.reachesTarget).toBe(true);
+  it("rows never go below 0 or above 10", () => {
+    const v: PlanValues = { Tests: 1, Project: 9, Presentation: 9, "Final Exam": 9 };
+    const next = moveRow(input, v, [], "Final Exam", 10, 5);
+    expect(Object.values(next).every((x) => x >= 0 && x <= 10)).toBe(true);
+    expect(projectedGrade(input, next)).toBeCloseTo(5, 9);
+  });
+});
+
+describe("pinned rows", () => {
+  it("never change when another row moves", () => {
+    let v = moveRow(input, evenSplit(input, TARGET), [], "Project", 9, TARGET);
+    const pinned = ["Project"];
+    for (const [key, value] of [["Tests", 5], ["Final Exam", 8], ["Presentation", 3]] as const) {
+      v = moveRow(input, v, pinned, key, value, TARGET);
+      expect(v.Project).toBe(9);
+      expect(projectedGrade(input, v)).toBeCloseTo(TARGET, 9);
+    }
   });
 
-  it("tap to make auto removes one choice", () => {
-    const { locks } = setPlanValue(rows, [], "Tests", 9);
-    expect(unlockRow(locks, "Tests")).toEqual([]);
+  it("a value below a row's minimum is raised to the minimum", () => {
+    const v = moveRow(input, evenSplit(input, TARGET), [], "Final Exam", 2, TARGET);
+    expect(v["Final Exam"]).toBe(4);
+  });
+});
+
+describe("planStatus: impossible and secured", () => {
+  it("not reachable: the other rows go to 10 and are marked", () => {
+    const v = moveRow(input, evenSplit(input, 9), [], "Final Exam", 4, 9);
+    const status = planStatus(input, v, ["Final Exam"], 9);
+    expect(status.unreachable).toBe(true);
+    expect([...status.short].sort()).toEqual(["Presentation", "Project", "Tests"]);
+    for (const k of status.short) expect(v[k]).toBe(10);
+    // (80 + 500 + 160) / 100 = 7.4
+    expect(status.projected).toBeCloseTo(7.4, 9);
+    expect(status.reachesTarget).toBe(false);
+    expect(status.passes).toBe(true);
   });
 
-  it("forgets choices for rows that were graded since", () => {
-    expect(activeLocks(rows, [{ key: "Old exam", value: 5 }, { key: "Tests", value: 6 }])).toEqual([
-      { key: "Tests", value: 6 },
-    ]);
+  it("not reachable when every other row is pinned", () => {
+    const pinned = ["Tests", "Project", "Presentation"];
+    const v = moveRow(input, evenSplit(input, TARGET), pinned, "Final Exam", 4, TARGET);
+    const status = planStatus(input, v, [...pinned, "Final Exam"], TARGET);
+    expect(status.unreachable).toBe(true);
+    expect(status.short).toEqual([]);
+  });
+
+  it("secured: the others go down to their minimum or 0", () => {
+    const v = moveRow(input, evenSplit(input, 2), [], "Final Exam", 10, 2);
+    const status = planStatus(input, v, ["Final Exam"], 2);
+    expect([v.Tests, v.Project, v.Presentation]).toEqual([0, 0, 0]);
+    expect(status.secured).toBe(true);
+    expect(status.reachesTarget).toBe(true);
+    expect(status.unreachable).toBe(false);
+  });
+
+  it("on target is neither secured nor unreachable", () => {
+    const status = planStatus(input, evenSplit(input, TARGET), [], TARGET);
+    expect(status).toMatchObject({ reachesTarget: true, unreachable: false, secured: false, short: [] });
   });
 });

@@ -14,7 +14,7 @@ import {
 import type { CourseUpdater } from "./CoursesApp";
 import { AddAssessmentForm, type NewAssessment } from "./AddAssessmentForm";
 import { AssessmentList } from "./AssessmentList";
-import { GradePlanner, type PlanLocks, hasPlannableRows } from "./GradePlanner";
+import { GradePlanner, type PlanState, hasPlannableRows } from "./GradePlanner";
 import type { EditorActions } from "./AssessmentEditor";
 import type { NewPart } from "./SplitForm";
 import { StatusBadge } from "./StatusBadge";
@@ -57,7 +57,7 @@ export function CourseCard({
   const toggleRef = useRef<HTMLButtonElement>(null);
   const plannerRef = useRef<HTMLHeadingElement>(null);
   // Plans are what-ifs: kept in memory while the page is open, never saved.
-  const [planLocks, setPlanLocks] = useState<PlanLocks>([]);
+  const [plan, setPlan] = useState<PlanState | null>(null);
   const goToPlanner = useRef(false);
   const canPlan = useMemo(() => hasPlannableRows(course.assessments), [course.assessments]);
 
@@ -240,8 +240,8 @@ export function CourseCard({
               idPrefix={id}
               assessments={course.assessments}
               target={course.target_grade}
-              locks={planLocks}
-              onLocksChange={setPlanLocks}
+              plan={plan}
+              onPlanChange={setPlan}
               showTip={showPlannerTip}
               onDismissTip={onDismissPlannerTip}
             />

@@ -1,30 +1,37 @@
 "use client";
 
-import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useMemo, useState } from "react";
 import type { Assessment } from "@/lib/grades";
-import { PASS_GRADE, formatGrade, formatWeight } from "@/lib/grades";
+import { PASS_GRADE, formatGrade, formatWeight, parseDecimal, roundUp1 } from "@/lib/grades";
 import {
-  type PlanLock,
+  type PlanInput,
   type PlanRow,
-  activeLocks as currentLocks,
-  fitToTarget,
-  lockValues,
+  type PlanValues,
+  evenSplit,
+  moveRow,
   planInput,
-  setPlanValue,
-  solvePlan,
-  unlockRow,
+  planStatus,
+  shiftToTarget,
 } from "@/lib/planner";
 import { secondaryButton } from "./ui";
 
-/** Your choices, oldest change first. */
-export type PlanLocks = PlanLock[];
+/** A plan in progress. Never saved: kept in memory while the page is open. */
+export type PlanState = {
+  values: PlanValues;
+  /** Rows you pinned on purpose: they stay fixed when another row moves. */
+  pinned: string[];
+  /** The row you are moving right now (dragging or typing). */
+  moving: string | null;
+  /** Target and rows the values were made for; when these change the plan is re-fitted. */
+  basis: string;
+};
 
 type Props = {
   idPrefix: string;
   assessments: Assessment[];
   target: number;
-  locks: PlanLocks;
-  onLocksChange: (locks: PlanLocks) => void;
+  plan: PlanState | null;
+  onPlanChange: (plan: PlanState | null) => void;
   showTip: boolean;
   onDismissTip: () => void;
 };
@@ -34,48 +41,68 @@ export function hasPlannableRows(assessments: Assessment[]): boolean {
   return planInput(assessments).rows.length > 0;
 }
 
-/** "Plan your remaining grades": sliders for what-if grades. Never saved. */
+const basisOf = (input: PlanInput, target: number) =>
+  JSON.stringify([target, input.points, input.totalWeight, input.rows]);
+
+/** Planned grades are shown rounded up, so a plan is never too optimistic. */
+const shown = (v: number) => formatGrade(roundUp1(v));
+
+/** "Plan your remaining grades": sliders for what-if grades. */
 export const GradePlanner = forwardRef<HTMLHeadingElement, Props>(function GradePlanner(
-  { idPrefix, assessments, target, locks, onLocksChange, showTip, onDismissTip },
+  { idPrefix, assessments, target, plan, onPlanChange, showTip, onDismissTip },
   headingRef,
 ) {
   const input = useMemo(() => planInput(assessments), [assessments]);
-  // Ignore choices for assessments that have been graded or removed since.
-  const active = useMemo(() => currentLocks(input.rows, locks), [input, locks]);
-  const plan = solvePlan(input, lockValues(active), target);
+  const basis = basisOf(input, target);
   const single = input.rows.length === 1;
+  const current = plan && plan.basis === basis ? plan : null;
+
+  const pinned = useMemo(
+    () => (single ? [] : (plan?.pinned ?? []).filter((k) => input.rows.some((r) => r.key === k))),
+    [single, plan, input],
+  );
+  const values = useMemo(() => {
+    if (single || !plan) return evenSplit(input, target);
+    if (plan.basis === basis) return plan.values;
+    // Grades or the target changed since: keep your plan's shape and fit it to the new target.
+    const even = evenSplit(input, target);
+    const start = Object.fromEntries(
+      input.rows.map((r) => [
+        r.key,
+        Math.min(10, Math.max(r.minGrade ?? 0, plan.values[r.key] ?? even[r.key])),
+      ]),
+    );
+    return shiftToTarget(input, start, pinned, target);
+  }, [single, plan, basis, input, target, pinned]);
+
+  const moving = current?.moving ?? null;
+  const fixed = moving ? [...pinned, moving] : pinned;
+  const status = planStatus(input, values, fixed, target);
+
   const [flash, setFlash] = useState<{ keys: string[]; id: number }>({ keys: [], id: 0 });
   const [announcement, setAnnouncement] = useState("");
-  const [notice, setNotice] = useState<string | null>(null);
-  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (noticeTimer.current) clearTimeout(noticeTimer.current);
-  }, []);
 
-  function showNotice(text: string) {
-    setNotice(text);
-    if (noticeTimer.current) clearTimeout(noticeTimer.current);
-    noticeTimer.current = setTimeout(() => setNotice(null), 3000);
-  }
-
-  // Runs on every input event, so auto rows follow the slider live while you drag.
-  function apply(next: PlanLock[], moved: string | null, released: string | null = null) {
-    const after = solvePlan(input, lockValues(next), target);
+  // Runs on every input event: the other rows follow live while you drag or type.
+  function move(key: string, value: number) {
+    const next = moveRow(input, values, pinned, key, value, target);
     const changed = input.rows
       .map((r) => r.key)
-      .filter((k) => k !== moved && Math.abs(after.values[k] - plan.values[k]) > 1e-9);
-    onLocksChange(next);
+      .filter((k) => k !== key && shown(next[k]) !== shown(values[k]));
+    onPlanChange({ values: next, pinned, moving: key, basis });
     if (changed.length > 0) setFlash((f) => ({ keys: changed, id: f.id + 1 }));
-    if (released) showNotice(`${released} is now auto so your plan can still reach the target.`);
-    const adjusted = changed.map((k) => `${k} adjusted to ${formatGrade(after.values[k])}`).join(". ");
+    const after = planStatus(input, next, [...pinned, key], target);
     setAnnouncement(
-      `${released ? `${released} is now auto. ` : ""}${adjusted ? `${adjusted}. ` : ""}Projected final grade ${formatGrade(
+      `${changed.map((k) => `${k} ${shown(next[k])}`).join(", ")}${changed.length ? ". " : ""}Projected final grade ${formatGrade(
         after.projected,
-      )}, ${after.reachesTarget ? "reaches your target" : `below your ${formatGrade(target)} target`}.`,
+      )}${after.reachesTarget ? ", reaches your target" : `, below your ${formatGrade(target)} target`}.`,
     );
   }
 
-  const projected = formatGrade(plan.projected);
+  function togglePin(key: string) {
+    const nextPinned = pinned.includes(key) ? pinned.filter((k) => k !== key) : [...pinned, key];
+    onPlanChange({ values, pinned: nextPinned, moving, basis });
+    setAnnouncement(`${key} ${nextPinned.includes(key) ? "pinned" : "unpinned"}.`);
+  }
 
   return (
     <section aria-labelledby={`${idPrefix}-plan`} className="rounded-xl border border-gray-200 p-4 sm:p-5">
@@ -111,73 +138,64 @@ export const GradePlanner = forwardRef<HTMLHeadingElement, Props>(function Grade
 
       <div
         className={`mt-4 rounded-xl border-2 p-4 ${
-          plan.reachesTarget
+          status.reachesTarget
             ? "border-emerald-300 bg-emerald-50 text-emerald-950"
             : "border-amber-400 bg-amber-50 text-amber-950"
         }`}
       >
         <p className="text-lg font-semibold">
-          Projected final grade: <span className="text-3xl font-bold tracking-tight">{projected}</span>{" "}
-          {plan.reachesTarget ? (
+          Projected final grade:{" "}
+          <span className="text-3xl font-bold tracking-tight">{formatGrade(status.projected)}</span>{" "}
+          {status.reachesTarget ? (
             <span className="whitespace-nowrap">✓ reaches your target</span>
           ) : (
             <span className="whitespace-nowrap">✗ below your {formatGrade(target)} target</span>
           )}
         </p>
         <p className="mt-1 text-sm font-semibold">
-          {plan.passes ? "Pass ✓" : `Below ${formatGrade(PASS_GRADE)}`}
+          {status.passes ? "Pass ✓" : `Below ${formatGrade(PASS_GRADE)}`}
+          {status.secured && " · Target secured."}
         </p>
+        {status.unreachable && !moving && (
+          <p className="mt-1 text-sm font-semibold text-red-800">
+            Not reachable: lower a grade or your target.
+          </p>
+        )}
       </div>
       <p aria-live="polite" className="sr-only">
         {announcement}
       </p>
 
-      <div aria-live="polite">
-        {notice && (
-          <p className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-950">
-            {notice}
-          </p>
-        )}
-      </div>
-
       <ul className="mt-4 space-y-3">
-        {input.rows.map((r) => (
+        {input.rows.map((r, i) => (
           <PlanSlider
             key={r.key}
-            id={`${idPrefix}-plan-${input.rows.indexOf(r)}`}
+            id={`${idPrefix}-plan-${i}`}
             row={r}
-            value={plan.values[r.key]}
-            mode={single ? "single" : active.some((l) => l.key === r.key) ? "locked" : "auto"}
-            short={plan.short.includes(r.key)}
+            value={values[r.key]}
+            mode={single ? "single" : r.key === moving ? "moving" : pinned.includes(r.key) ? "pinned" : "auto"}
+            short={status.short.includes(r.key)}
+            unreachableHere={status.unreachable && r.key === moving}
             flashId={flash.keys.includes(r.key) ? flash.id : null}
-            onChange={(v) => {
-              const { locks: next, released } = setPlanValue(input.rows, active, r.key, v);
-              apply(next, r.key, released);
-            }}
-            onUnlock={() => apply(unlockRow(active, r.key), null)}
+            onMove={(v) => move(r.key, v)}
+            onTogglePin={() => togglePin(r.key)}
+            pinnedFlag={pinned.includes(r.key)}
           />
         ))}
       </ul>
 
       {!single && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => apply(fitToTarget(active), null)}
-            disabled={active.length < 2}
-            className={secondaryButton}
-          >
-            Fit to target
-          </button>
-          <button
-            type="button"
-            onClick={() => apply([], null)}
-            disabled={active.length === 0}
-            className={secondaryButton}
-          >
-            Reset plan
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => {
+            onPlanChange(null);
+            setAnnouncement("Plan reset: the same grade on every assessment.");
+          }}
+          disabled={plan === null}
+          className={`${secondaryButton} mt-4`}
+        >
+          Reset plan
+        </button>
       )}
     </section>
   );
@@ -188,30 +206,35 @@ function PlanSlider({
   row,
   value,
   mode,
+  pinnedFlag,
   short,
+  unreachableHere,
   flashId,
-  onChange,
-  onUnlock,
+  onMove,
+  onTogglePin,
 }: {
   id: string;
   row: PlanRow;
   value: number;
   /** "single": the only ungraded row, shown read-only as what you need. */
-  mode: "auto" | "locked" | "single";
+  mode: "auto" | "moving" | "pinned" | "single";
+  pinnedFlag: boolean;
   short: boolean;
+  unreachableHere: boolean;
   flashId: number | null;
-  onChange: (value: number) => void;
-  onUnlock: () => void;
+  onMove: (value: number) => void;
+  onTogglePin: () => void;
 }) {
   const min = row.minGrade ?? 0;
-  const shown = formatGrade(value);
-  // Thumb is 30px wide: keep markers aligned with its centre.
+  const text = shown(value);
+  // Thumb is 30px wide: keep the fill and the minimum marker aligned with its centre.
   const at = (v: number) => `calc(15px + (100% - 30px) * ${v / 10})`;
+  const red = short || unreachableHere;
 
   return (
     <li
       className={`relative overflow-hidden rounded-xl border p-3 ${
-        short ? "border-red-300 bg-red-50" : "border-gray-200 bg-white"
+        red ? "border-red-300 bg-red-50" : "border-gray-200 bg-white"
       }`}
     >
       {flashId !== null && (
@@ -220,7 +243,7 @@ function PlanSlider({
       <div className="relative sm:grid sm:grid-cols-[minmax(0,14rem)_1fr_auto] sm:items-center sm:gap-4">
         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 sm:block">
           {mode === "single" ? (
-            <span id={id} className="wrap-anywhere font-medium text-gray-900">
+            <span className="wrap-anywhere font-medium text-gray-900">
               {row.name} · {formatWeight(row.weight)}%
             </span>
           ) : (
@@ -232,89 +255,156 @@ function PlanSlider({
             {row.minGrade !== null && (
               <span className="text-xs font-medium text-gray-700">min {formatGrade(row.minGrade)}</span>
             )}
-            {mode === "single" ? (
+            {mode === "single" && (
               <span className="text-xs font-semibold text-gray-700">This is what you need</span>
-            ) : mode === "locked" ? (
+            )}
+            {mode === "moving" && (
+              <span className="rounded-full bg-emerald-700 px-2.5 py-0.5 text-xs font-semibold text-white">
+                your choice
+              </span>
+            )}
+            {mode === "auto" && (
+              <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
+                adjusts automatically
+              </span>
+            )}
+            {mode !== "single" && (
               <button
                 type="button"
-                onClick={onUnlock}
-                className="inline-flex min-h-8 items-center gap-1 rounded-full border border-gray-400 bg-white px-2.5 text-xs font-semibold text-gray-900 hover:bg-gray-50"
+                onClick={onTogglePin}
+                aria-pressed={pinnedFlag}
+                className={`inline-flex min-h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-semibold ${
+                  pinnedFlag
+                    ? "border-gray-700 bg-gray-800 text-white hover:bg-gray-700"
+                    : "border-gray-300 bg-white text-gray-800 hover:bg-gray-50"
+                }`}
               >
-                <span aria-hidden="true">🔒</span> your choice
-                <span className="font-normal text-gray-700">· tap to make auto</span>
+                <span aria-hidden="true">📌</span>
+                {pinnedFlag ? (
+                  <>
+                    Pinned <span className="font-normal">· tap to unpin</span>
+                  </>
+                ) : (
+                  "Pin this grade"
+                )}
                 <span className="sr-only">: {row.name}</span>
               </button>
-            ) : (
-              <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-700">
-                <span className="font-semibold">auto</span> · adjusts to reach your target
-              </span>
             )}
           </div>
         </div>
 
         <div className="mt-1 flex items-center gap-3 sm:mt-0 sm:contents">
           <div className="relative min-w-0 flex-1">
-            {row.minGrade !== null && mode !== "single" && (
-              <>
-                {/* Marker at the minimum; the track below it is drawn grey (see --min). */}
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute top-1/2 z-20 h-6 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded bg-gray-900"
-                  style={{ left: at(min) }}
-                />
-              </>
-            )}
             {mode === "single" ? (
               // Read-only: the same track, without a handle to drag.
               <div aria-hidden="true" className="flex h-11 items-center">
                 <div
                   className="h-2 w-full rounded-full"
                   style={{
-                    background: `linear-gradient(to right, ${short ? "#b91c1c" : "#047857"} ${value * 10}%, #d1d5db ${value * 10}%)`,
+                    background: `linear-gradient(to right, ${red ? "#b91c1c" : "#047857"} ${value * 10}%, #d1d5db ${value * 10}%)`,
                   }}
                 />
               </div>
             ) : (
-              <input
-                id={id}
-                type="range"
-                min={0}
-                max={10}
-                step={0.1}
-                value={value}
-                // Never below the minimum: the slider stops at the marker.
-                onChange={(e) => onChange(Math.max(min, Number(e.target.value)))}
-                aria-valuetext={`${shown} planned${short ? ", not enough" : ""}${
-                  row.minGrade !== null ? `, minimum ${formatGrade(row.minGrade)}` : ""
-                }`}
-                className="plan-slider relative z-10 block"
-                style={
-                  {
-                    "--fill": at(value),
-                    "--min": row.minGrade === null ? "0%" : at(min),
-                    "--fill-color": short ? "#b91c1c" : "#047857",
-                  } as React.CSSProperties
-                }
-              />
+              <>
+                {row.minGrade !== null && (
+                  // Marker at the minimum; the track below it is drawn grey (see --min).
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute top-1/2 z-20 h-6 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded bg-gray-900"
+                    style={{ left: at(min) }}
+                  />
+                )}
+                <input
+                  id={id}
+                  type="range"
+                  min={0}
+                  max={10}
+                  step={0.1}
+                  value={value}
+                  // Never below the minimum: the slider stops at the marker.
+                  onChange={(e) => onMove(Math.max(min, Number(e.target.value)))}
+                  aria-valuetext={`${text} planned${red ? ", not reachable" : ""}${
+                    row.minGrade !== null ? `, minimum ${formatGrade(row.minGrade)}` : ""
+                  }`}
+                  className="plan-slider relative z-10 block"
+                  style={
+                    {
+                      "--fill": at(value),
+                      "--min": row.minGrade === null ? "0%" : at(min),
+                      "--fill-color": red ? "#b91c1c" : "#047857",
+                    } as React.CSSProperties
+                  }
+                />
+              </>
             )}
           </div>
-          <div
-            className={`w-20 shrink-0 rounded-lg border-2 border-dashed px-2 py-1 text-center ${
-              short ? "border-red-400 text-red-800" : "border-gray-400 text-gray-700"
-            }`}
-          >
-            <span className="block text-[11px] font-semibold uppercase leading-none tracking-wide">
-              {mode === "single" ? "Need" : "Plan"}
-            </span>
-            <span className="block text-2xl font-bold leading-tight">{shown}</span>
-          </div>
+          <PlanValueBox
+            id={`${id}-value`}
+            label={mode === "single" ? "Need" : "Plan"}
+            rowName={row.name}
+            value={value}
+            readOnly={mode === "single"}
+            red={red}
+            onMove={onMove}
+          />
         </div>
       </div>
-      {short && (
+      {unreachableHere && (
         <p className="relative mt-2 text-sm font-medium text-red-800">
-          <span aria-hidden="true">✗ </span>not enough: lower another plan or your target
+          <span aria-hidden="true">✗ </span>Not reachable: lower this grade or your target.
         </p>
       )}
     </li>
+  );
+}
+
+/** The planned value in big numbers; also a field you can type in ("6,5" works). */
+function PlanValueBox({
+  id,
+  label,
+  rowName,
+  value,
+  readOnly,
+  red,
+  onMove,
+}: {
+  id: string;
+  label: string;
+  rowName: string;
+  value: number;
+  readOnly: boolean;
+  red: boolean;
+  onMove: (value: number) => void;
+}) {
+  // While you type, keep your text; otherwise show the plan's value.
+  const [draft, setDraft] = useState<string | null>(null);
+  const tone = red ? "border-red-400 text-red-800" : "border-gray-400 text-gray-700";
+
+  return (
+    <div className={`w-20 shrink-0 rounded-lg border-2 border-dashed px-1 py-1 text-center ${tone}`}>
+      <label htmlFor={id} className="block text-[11px] font-semibold uppercase leading-none tracking-wide">
+        {label}
+        <span className="sr-only"> for {rowName}</span>
+      </label>
+      <input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        readOnly={readOnly}
+        value={draft ?? shown(value)}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          const v = parseDecimal(e.target.value);
+          if (v !== null && v <= 10) onMove(v);
+        }}
+        onBlur={() => setDraft(null)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+        className="block w-full bg-transparent text-center text-2xl font-bold leading-tight outline-offset-2"
+      />
+    </div>
   );
 }
