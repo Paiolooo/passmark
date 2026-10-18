@@ -24,6 +24,8 @@ import { friendlyDbError } from "../useSaver";
 import { ConfirmDelete } from "./HistoryList";
 
 const TARGETS = [0.01, 0.05, 0.1, 0.25];
+/** Select value for a semester that isn't in the history yet (never a real label). */
+const OTHER = "\u0000other";
 const DISCLAIMER = "Estimate based on the numbers you entered. Not an official IE ranking.";
 const count = (n: number) => n.toLocaleString("en-US");
 
@@ -346,7 +348,10 @@ function RankingForm({
 }) {
   const id = useId();
   const firstFree = labels.find((l) => !rows.some((r) => r.semester_label === l)) ?? labels[0];
-  const [label, setLabel] = useState(row?.semester_label ?? firstFree);
+  const [choice, setChoice] = useState(row?.semester_label ?? firstFree);
+  // "Other semester…": one that isn't in your history yet (e.g. you haven't imported it).
+  const [otherName, setOtherName] = useState("");
+  const label = choice === OTHER ? otherName.trim() : choice;
   const [mode, setMode] = useState<Mode>(row?.top_percent != null && row.my_rank == null ? "percent" : "rank");
   const [rank, setRank] = useState(row?.my_rank != null ? String(row.my_rank) : "");
   const [size, setSize] = useState(row?.class_size != null ? String(row.class_size) : "");
@@ -362,6 +367,7 @@ function RankingForm({
   async function save(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (saving) return;
+    if (!label) return setError("Type the semester's name, e.g. 25/26 · 2nd semester.");
     let my_rank: number | null = null;
     let class_size: number | null = null;
     let top_percent: number | null = null;
@@ -419,14 +425,30 @@ function RankingForm({
           <label htmlFor={`${id}-label`} className="block text-sm font-medium text-ink">
             Semester
           </label>
-          <select id={`${id}-label`} value={label} onChange={(e) => setLabel(e.target.value)} className={inputClass}>
+          <select id={`${id}-label`} value={choice} onChange={(e) => setChoice(e.target.value)} className={inputClass}>
             {labels.map((l) => (
               <option key={l} value={l}>
                 {l === OVERALL ? "Overall (whole degree so far)" : l}
                 {rows.some((r) => r.semester_label === l) ? " · already added" : ""}
               </option>
             ))}
+            <option value={OTHER}>Other semester…</option>
           </select>
+          {choice === OTHER && (
+            <div className="mt-2">
+              <label htmlFor={`${id}-other`} className={labelClass}>
+                Semester name
+              </label>
+              <input
+                id={`${id}-other`}
+                value={otherName}
+                onChange={(e) => setOtherName(e.target.value)}
+                placeholder="e.g. 25/26 · 2nd semester"
+                className={inputClass}
+              />
+              <p className="mt-1 text-xs text-ink-3">Use the same name as in your history so your GPA is filled in (Spring = 2nd semester).</p>
+            </div>
+          )}
         </div>
       )}
 
