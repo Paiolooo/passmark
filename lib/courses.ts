@@ -112,3 +112,29 @@ export function toPastCourse(row: Row): PastCourseRow {
     position: num(row.position ?? 0),
   };
 }
+
+// ─── GPA page: ranking within your degree ─────────────────────────────────
+
+export const RANKING_COLUMNS = "id, semester_label, my_rank, class_size, top_percent, class_average, my_gpa";
+
+export type RankingRow = {
+  id: string;
+  semester_label: string;
+  my_rank: number | null;
+  class_size: number | null;
+  top_percent: number | null;
+  class_average: number | null;
+  my_gpa: number | null;
+};
+
+export function toRanking(row: Row): RankingRow {
+  return {
+    id: String(row.id),
+    semester_label: String(row.semester_label),
+    my_rank: numOrNull(row.my_rank),
+    class_size: numOrNull(row.class_size),
+    top_percent: numOrNull(row.top_percent),
+    class_average: numOrNull(row.class_average),
+    my_gpa: numOrNull(row.my_gpa),
+  };
+}

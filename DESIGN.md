@@ -130,6 +130,11 @@ Icons: `lucide-react` only, `strokeWidth` 1.75–2, `aria-hidden`. No emoji anyw
   collapsible cards (newest open), each course with ECTS, grade or result and a "Counts" switch.
   "Import transcript PDF" is the primary action, "Add manually" the secondary one. Every place
   that reads a transcript shows the privacy line.
+- Ranking card (on /gpa, after the target): one big estimate ("Estimated: Top ~8%", "≈ #80 of
+  1,000"), "If you hit your targets", "What do I need for…" chips (Segmented `fill`: one row on
+  phones), then the position per semester as bars with text and a "Best" pill. Always ends with
+  "Estimate based on the numbers you entered. Not an official IE ranking." Wording says "your
+  degree" (e.g. BBA students), never "class".
 - Auth: a single 420px card centred on the paper background.
 
 ## Do

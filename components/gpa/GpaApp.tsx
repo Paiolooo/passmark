@@ -2,7 +2,7 @@
 
 import { FileUp, PenLine } from "lucide-react";
 import { useId, useMemo, useState } from "react";
-import type { Course, PastCourseRow, PastSemesterRow } from "@/lib/courses";
+import type { Course, PastCourseRow, PastSemesterRow, RankingRow } from "@/lib/courses";
 import {
   type GpaCourse,
   creditsCompleted,
@@ -21,6 +21,7 @@ import { AnimatedNumber } from "../ui/AnimatedNumber";
 import { usePdfPicker } from "../usePdfPicker";
 import { HistoryList } from "./HistoryList";
 import { ManualAdd } from "./ManualAdd";
+import { RankingCard } from "./RankingCard";
 import { TargetLine } from "./TargetLine";
 import { TranscriptImport } from "./TranscriptImport";
 
@@ -34,12 +35,16 @@ export function GpaApp({
   historyAvailable,
   initialSemesters,
   initialPastCourses,
+  rankingAvailable,
+  initialRankings,
 }: {
   courses: Course[];
   coursesError: string | null;
   historyAvailable: boolean;
   initialSemesters: PastSemesterRow[];
   initialPastCourses: PastCourseRow[];
+  rankingAvailable: boolean;
+  initialRankings: RankingRow[];
 }) {
   const id = useId();
   const [courses, setCourses] = useState(initialCourses);
@@ -193,6 +198,14 @@ export function GpaApp({
           </p>
         )}
       </Card>
+
+      <RankingCard
+        available={rankingAvailable}
+        initialRows={initialRankings}
+        semesterGpas={history.map((h) => ({ label: h.label, gpa: h.gpa }))}
+        overallGpa={overall.gpa}
+        projectedGpa={projected.counted.length > 0 ? ifTargets.gpa : null}
+      />
 
       <section aria-labelledby={`${id}-history`} className="mt-12">
         <div className="flex flex-wrap items-end justify-between gap-3">

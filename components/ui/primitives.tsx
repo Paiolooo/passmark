@@ -120,17 +120,23 @@ export function Segmented<T>({
   isActive,
   onSelect,
   labelledBy,
+  fill = false,
 }: {
   options: { label: string; value: T }[];
   isActive: (value: T) => boolean;
   onSelect: (value: T) => void;
   labelledBy: string;
+  /** Options share the full width in one row (no wrapping), e.g. four chips on a phone. */
+  fill?: boolean;
 }) {
   return (
     <div
       role="group"
       aria-labelledby={labelledBy}
-      className="inline-flex max-w-full flex-wrap gap-1 rounded-[var(--radius-md)] border border-line bg-sunken p-1"
+      className={`rounded-[var(--radius-md)] border border-line bg-sunken p-1 ${
+        fill ? "grid w-full gap-1 sm:inline-grid sm:w-auto" : "inline-flex max-w-full flex-wrap gap-1"
+      }`}
+      style={fill ? { gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` } : undefined}
     >
       {options.map((o) => {
         const active = isActive(o.value);
@@ -140,7 +146,9 @@ export function Segmented<T>({
             type="button"
             aria-pressed={active}
             onClick={() => onSelect(o.value)}
-            className={`num min-h-11 min-w-14 rounded-[var(--radius-sm)] px-3.5 text-sm font-semibold transition-[background-color,color,box-shadow] duration-[var(--dur-fast)] ${
+            className={`num min-h-11 rounded-[var(--radius-sm)] text-sm font-semibold whitespace-nowrap transition-[background-color,color,box-shadow] duration-[var(--dur-fast)] ${
+              fill ? "px-1 text-[13px] sm:px-3.5 sm:text-sm" : "min-w-14 px-3.5"
+            } ${
               active ? "bg-surface text-ink shadow-card ring-1 ring-line" : "text-ink-2 hover:bg-surface/60 hover:text-ink"
             }`}
           >
