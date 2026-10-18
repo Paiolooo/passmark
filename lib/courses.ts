@@ -1,5 +1,6 @@
 // Shapes of the rows PassMark reads from Supabase, with numbers normalised.
 import type { Assessment } from "./grades";
+import type { Reference } from "./ranking";
 
 export const COURSE_COLUMNS = "id, name, target_grade, sessions, credits, source, created_at";
 export const ASSESSMENT_COLUMNS =
@@ -113,28 +114,21 @@ export function toPastCourse(row: Row): PastCourseRow {
   };
 }
 
-// ─── GPA page: ranking within your degree ─────────────────────────────────
+// ─── GPA page: ranking reference data (owner-provided, read-only) ──────────
 
-export const RANKING_COLUMNS = "id, semester_label, my_rank, class_size, top_percent, class_average, my_gpa";
+export const REFERENCE_COLUMNS = "program, semester_label, class_size, class_average, class_sd, cutoffs";
 
-export type RankingRow = {
-  id: string;
-  semester_label: string;
-  my_rank: number | null;
-  class_size: number | null;
-  top_percent: number | null;
-  class_average: number | null;
-  my_gpa: number | null;
-};
-
-export function toRanking(row: Row): RankingRow {
+export function toReference(row: Row): Reference {
+  const cutoffs =
+    row.cutoffs && typeof row.cutoffs === "object"
+      ? Object.fromEntries(Object.entries(row.cutoffs as Record<string, unknown>).map(([k, v]) => [k, Number(v)]))
+      : null;
   return {
-    id: String(row.id),
+    program: String(row.program),
     semester_label: String(row.semester_label),
-    my_rank: numOrNull(row.my_rank),
     class_size: numOrNull(row.class_size),
-    top_percent: numOrNull(row.top_percent),
     class_average: numOrNull(row.class_average),
-    my_gpa: numOrNull(row.my_gpa),
+    class_sd: numOrNull(row.class_sd),
+    cutoffs,
   };
 }

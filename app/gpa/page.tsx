@@ -6,11 +6,11 @@ import {
   COURSE_COLUMNS,
   PAST_COURSE_COLUMNS,
   PAST_SEMESTER_COLUMNS,
-  RANKING_COLUMNS,
+  REFERENCE_COLUMNS,
   toCourse,
   toPastCourse,
   toPastSemester,
-  toRanking,
+  toReference,
 } from "@/lib/courses";
 import { createClient } from "@/lib/supabase/server";
 
@@ -25,7 +25,7 @@ export default async function GpaPage() {
     supabase.from("courses").select(`${COURSE_COLUMNS}, assessments(${ASSESSMENT_COLUMNS})`).order("created_at"),
     supabase.from("past_semesters").select(PAST_SEMESTER_COLUMNS).order("position"),
     supabase.from("past_courses").select(PAST_COURSE_COLUMNS).order("position"),
-    supabase.from("semester_rankings").select(RANKING_COLUMNS).order("created_at"),
+    supabase.from("ranking_reference").select(REFERENCE_COLUMNS),
   ]);
 
   // History needs both tables (supabase/add-transcript.sql). Without them, "This semester" still works.
@@ -38,9 +38,8 @@ export default async function GpaPage() {
       historyAvailable={historyAvailable}
       initialSemesters={historyAvailable ? (semestersResult.data ?? []).map((r) => toPastSemester(r as Record<string, unknown>)) : []}
       initialPastCourses={historyAvailable ? (pastResult.data ?? []).map((r) => toPastCourse(r as Record<string, unknown>)) : []}
-      // Ranking is optional (supabase/add-ranking.sql): without it the card says it can't load.
-      rankingAvailable={!rankingResult.error}
-      initialRankings={(rankingResult.data ?? []).map((r) => toRanking(r as Record<string, unknown>))}
+      // Reference data for ranking estimates (supabase/add-ranking-reference.sql); optional.
+      references={rankingResult.error ? [] : (rankingResult.data ?? []).map((r) => toReference(r as Record<string, unknown>))}
     />
   );
 }
