@@ -3,6 +3,7 @@ import {
   type Assessment,
   buildCourseModel,
   computeCourse,
+  formatResult,
   parentGrade,
   partsWeightCheck,
   splitEqually,
@@ -422,11 +423,13 @@ describe("best K of N", () => {
 
   it("fewer graded parts than K: graded parts plus empty slots of weight/K", () => {
     const rows = [row({ name: "Final exam", weight: 75 }), ...quizzes([8, 6, null, null, null])];
-    const { items } = buildCourseModel(rows);
-    const quiz = items.filter((i) => i.name === "Quizzes");
+    // Planning the open quizzes at 5: both graded quizzes beat them and count.
+    const quiz = buildCourseModel(rows, 5).items.filter((i) => i.name === "Quizzes");
     expect(quiz).toHaveLength(4);
     expect(quiz.map((i) => i.weight)).toEqual([6.25, 6.25, 6.25, 6.25]);
     expect(quiz.map((i) => i.grade)).toEqual([8, 6, null, null]);
+    // At 10 (the most an open quiz can get), three open quizzes could push the 6 out.
+    expect(buildCourseModel(rows).items.filter((i) => i.name === "Quizzes").map((i) => i.grade)).toEqual([8, null, null, null]);
     const r = computeCourse(rows, 5);
     // R = 75 + 12.5; points = 6.25 × 14 = 87.5; (500 − 87.5) / 87.5 = 4.714… → 4.8
     expect(r.needed).toBe(4.8);
@@ -435,12 +438,32 @@ describe("best K of N", () => {
     );
   });
 
-  it("exactly K graded: the parent is fully graded", () => {
+  it("exactly K graded with one quiz still open: not final, the open quiz can replace the 6", () => {
     const rows = quizzes([8, 6, 7, 9, null]);
-    const { items } = buildCourseModel(rows);
-    expect(items.map((i) => i.grade)).toEqual([9, 8, 7, 6]);
+    expect(buildCourseModel(rows).items.map((i) => i.grade)).toEqual([9, 8, 7, null]);
+    // Planned below 6, the open quiz wouldn't count.
+    expect(buildCourseModel(rows, 5).items.map((i) => i.grade)).toEqual([9, 8, 7, 6]);
     const [parent, ...parts] = rows;
-    expect(parentGrade(parent, parts)).toEqual({ grade: 7.5, complete: true });
+    expect(parentGrade(parent, parts)).toEqual({ grade: 7.5, complete: false });
+    expect(computeCourse(rows, 5).outcome).not.toBe("final");
+  });
+
+  it("regression: K graded and one open is not shown as a final grade", () => {
+    // Final 50% = 6; quizzes best 2 of 3: 3, 4, open. A 10 on quiz 3 replaces the 3 → 6.5, a pass.
+    const rows = [row({ name: "Final", weight: 50, grade: 6 }), ...withParts("Quizzes", 50, [3, 4, null], { best_of: 2 })];
+    const r = computeCourse(rows, 5);
+    expect(r.outcome).toBe("needed");
+    // The open quiz replaces the 3: counted {4, x}, so 300 + 25 × 4 + 25x = 500 → x = 4.
+    expect(r.needed).toBe(4);
+  });
+
+  it("regression: a low graded part doesn't count while open parts can replace it", () => {
+    // Quizzes 100%, best 2 of 3, Q1 = 2: 5 on the other two drops the 2.
+    const r = computeCourse(withParts("Quizzes", 100, [2, null, null], { best_of: 2 }), 5);
+    expect(r.needed).toBe(5);
+    // Final 70%, quizzes 30% best 1 of 3, Q1 = 0: a planned quiz replaces the 0.
+    const r2 = computeCourse([row({ name: "Final", weight: 70 }), ...withParts("Quizzes", 30, [0, null, null], { best_of: 1 })], 5);
+    expect(r2.needed).toBe(5);
   });
 
   it("more than K graded: only the best K count", () => {
@@ -495,5 +518,26 @@ describe("minimum on a parent", () => {
     ];
     rows[2].min_grade = 4;
     expect(computeCourse(rows, 5).outcome).toBe("below-minimum");
+  });
+});
+
+describe("rounding of results (never too optimistic)", () => {
+  it("regression: landing demo — 6.6 on the final gives 6.96: shown 6.9, target not reached; needed agrees", () => {
+    const withFinal = (grade: number | null) =>
+      EXAMPLE_COURSE.items.map((i) => (i.grade === null ? { ...i, grade } : i));
+    const r = computeResult(withFinal(6.6), 7);
+    expect(r.finalGrade).toBeCloseTo(6.96, 9);
+    expect(formatResult(r.finalGrade!)).toBe("6.9");
+    expect(r.details).toEqual(["Below target"]);
+    const needed = computeResult(withFinal(null), 7).needed!;
+    expect(needed).toBe(6.8);
+    expect(computeResult(withFinal(6.7), 7).details).toEqual(["Below target"]);
+    expect(computeResult(withFinal(needed), 7).details).toEqual(["Target reached"]);
+  });
+
+  it("regression: a 4.96 final is not a pass", () => {
+    const r = computeResult([{ name: "A", weight: 100, grade: 4.96, minGrade: null }], 5);
+    expect(r.badge).toBe("Not passed");
+    expect(r.headline).toBe("Final grade: 4.9");
   });
 });

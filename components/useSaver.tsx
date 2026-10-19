@@ -1,7 +1,7 @@
 "use client";
 
 import { CircleAlert } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorBox } from "./ui";
 import { Toast } from "./ui/Toast";
 
@@ -25,6 +25,15 @@ export function friendlyDbError(error: unknown): string {
 export function useSaver() {
   const [status, setStatus] = useState<SaveStatus>({ kind: "idle" });
   const inFlight = useRef(0);
+
+  // Changes show before they are saved: ask before leaving the page while a save is still running.
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (inFlight.current > 0) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
 
   const save = useCallback(
     async <T,>(op: () => PromiseLike<DbResult<T>>): Promise<{ ok: boolean; data: T | null }> => {

@@ -156,6 +156,9 @@ create table if not exists public.past_semesters (
 );
 
 create index if not exists past_semesters_user_id_idx on public.past_semesters (user_id);
+-- One typed GPA per semester label, ignoring case (see unique-semester-label.sql).
+create unique index if not exists past_semesters_user_label_key
+  on public.past_semesters (user_id, lower(label));
 
 -- Keep updated_at current on every change to the profile.
 create or replace function public.touch_updated_at()
@@ -354,4 +357,4 @@ drop policy if exists "ranking_reference_select_authenticated" on public.ranking
 
 create policy "ranking_reference_select_authenticated" on public.ranking_reference
   for select to authenticated
-  using (true);
+  using ((select auth.uid()) is not null);

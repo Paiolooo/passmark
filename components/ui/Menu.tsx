@@ -7,7 +7,7 @@ import { useEffect, useId, useRef, useState } from "react";
 export type MenuItem = { label: string; icon: LucideIcon; onSelect: () => void; danger?: boolean };
 
 /** "⋯" button with a small menu. Arrow keys move, Escape closes and returns focus. */
-export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
+export function Menu({ id: triggerId, label, items }: { id?: string; label: string; items: MenuItem[] }) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
@@ -44,6 +44,7 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
     <div ref={wrap} className="relative">
       <button
         ref={trigger}
+        id={triggerId}
         type="button"
         aria-label={label}
         aria-haspopup="menu"

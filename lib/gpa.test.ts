@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { type CountedItem, computeResult } from "./grades";
 import {
+  MAX_COURSE_CREDITS,
+  MAX_SEMESTER_CREDITS,
+  chartPoints,
+  gradeEditPatch,
+  gradeText,
+  labelTaken,
+  splitDuplicates,
+  withoutHistoryCourses,
   type GpaCourse,
   type PastCourse,
   type PastSemester,
@@ -342,5 +350,177 @@ describe("parseGradeOrResult", () => {
     expect(parseGradeOrResult("").ok).toBe(false);
     expect(parseGradeOrResult("11").ok).toBe(false);
     expect(parseGradeOrResult("7.5.1").ok).toBe(false);
+  });
+});
+
+// ─── Regression tests (GPA page review) ───────────────────────────────────
+
+describe("re-importing a transcript skips courses already in the history", () => {
+  const existing = [past("Microeconomics", "24/25 · 1st semester", 6, 8), past("Law", "24/25 · 1st semester", 3, 5)];
+
+  it("matches name and semester ignoring case and spaces", () => {
+    const rows = [
+      { name: " microeconomics ", semester_label: "24/25 ·  1st Semester" },
+      { name: "Law", semester_label: "24/25 · 2nd semester" },
+      { name: "Statistics", semester_label: "24/25 · 1st semester" },
+    ];
+    const { fresh, skipped } = splitDuplicates(rows, existing);
+    expect(skipped.map((r) => r.name)).toEqual([" microeconomics "]);
+    expect(fresh.map((r) => r.name)).toEqual(["Law", "Statistics"]);
+  });
+
+  it("importing the same rows twice doesn't change the GPA", () => {
+    const first = [past("A", "S1", 6, 8), past("B", "S1", 6, 6)];
+    const once = historyRecord(groupHistory(first, []));
+    const again = splitDuplicates(first, first).fresh;
+    expect(again).toEqual([]);
+    const twice = historyRecord(groupHistory([...first, ...again], []));
+    expect(twice).toEqual(once);
+  });
+});
+
+describe("a course both in Courses and in the history counts once", () => {
+  const history = [past("Finance", "S1", 6, 6)];
+  const now = [course("finance ", 6, 10), course("Data", 6, 8)];
+
+  it("leaves the history copy and drops the one in Courses", () => {
+    const { kept, inHistory } = withoutHistoryCourses(now, history);
+    expect(kept.map((c) => c.name)).toEqual(["Data"]);
+    expect(inHistory.map((c) => c.name)).toEqual(["finance "]);
+  });
+
+  it("overall GPA, credits and needed use each course once", () => {
+    const record = historyRecord(groupHistory(history, []));
+    const { kept } = withoutHistoryCourses(now, history);
+    const overall = cumulativeGpa(record, currentSemester(kept), kept);
+    // (6×6 + 6×8) / 12 = 7, not (36 + 60 + 48) / 18
+    expect(overall.gpa).toBeCloseTo(7, 9);
+    expect(overall.credits).toBe(12);
+    expect(creditsCompleted(groupHistory(history, []), kept)).toBe(12);
+    const open = [course("Finance", 6, null), course("Data", 6, null)];
+    // Only Data is open: (7 × 12 − 36) / 6 = 8
+    expect(neededForCumulative(7, record, withoutHistoryCourses(open, history).kept)).toEqual({
+      status: "needed",
+      needed: 8,
+      credits: 6,
+    });
+  });
+});
+
+describe("transcript grades keep their exact value", () => {
+  it("7.25 stays 7.25 (not 7.3), comma input still reads", () => {
+    expect(gradeText(7.25, null)).toBe("7.25");
+    expect(gradeText(7, null)).toBe("7");
+    expect(gradeText(null, "Pass")).toBe("Pass");
+    expect(gradeText(null, null)).toBe("");
+    expect(parseGradeOrResult(gradeText(7.25, null))).toEqual({ ok: true, grade: 7.25, result_label: null });
+    expect(parseGradeOrResult("7,25")).toEqual({ ok: true, grade: 7.25, result_label: null });
+  });
+});
+
+describe("credits are capped to what the database can store", () => {
+  it("one course: up to 60 ECTS (fits numeric(4,1) and numeric(5,1))", () => {
+    expect(MAX_COURSE_CREDITS).toBeLessThanOrEqual(999.9);
+    expect(parseCredits("60")).toBe(60);
+    expect(parseCredits("60,5")).toBeNull();
+    expect(parseCredits("99999")).toBeNull();
+  });
+
+  it("a semester GPA: up to 999 ECTS (fits numeric(5,1))", () => {
+    expect(MAX_SEMESTER_CREDITS).toBeLessThanOrEqual(9999.9);
+    expect(parseCredits("240", MAX_SEMESTER_CREDITS)).toBe(240);
+    expect(parseCredits("1000", MAX_SEMESTER_CREDITS)).toBeNull();
+    expect(parseCredits("0", MAX_SEMESTER_CREDITS)).toBeNull();
+  });
+});
+
+describe("semester labels of typed GPAs are unique", () => {
+  const summaries = [
+    { id: "a", label: "Year 1 · Semester 1" },
+    { id: "b", label: "Year 1 · Semester 2" },
+  ];
+
+  it("renaming to another summary's label (any case) is taken", () => {
+    expect(labelTaken("year 1 · semester 2 ", summaries, "a")).toBe(true);
+  });
+
+  it("keeping your own label or using a new one is fine", () => {
+    expect(labelTaken("Year 1 · Semester 1", summaries, "a")).toBe(false);
+    expect(labelTaken("Year 2 · Semester 1", summaries, "a")).toBe(false);
+  });
+
+  it("without the check, a duplicate label hides one typed GPA", () => {
+    const hidden = groupHistory([], [
+      { label: "S1", gpa: 6, credits: 30 },
+      { label: "S1", gpa: 9, credits: 30 },
+    ]);
+    expect(hidden).toHaveLength(1);
+  });
+});
+
+describe("GPA needed ignores courses below a minimum grade", () => {
+  it("like projectedSemester: they are not open, so not in the needed average", () => {
+    const record = historyRecord(groupHistory([past("A", "S1", 30, 7)], []));
+    const belowMin: GpaCourse = {
+      name: "Stats",
+      credits: 6,
+      target: 7,
+      result: computeResult([item("Mid", 60, 9), item("Final", 40, 3, 4)], 7),
+    };
+    expect(belowMin.result.outcome).toBe("below-minimum");
+    // Only Open (6 ECTS): (7.5 × 36 − 210) / 6 = 10
+    expect(neededForCumulative(7.5, record, [belowMin, course("Open", 6, null)])).toEqual({
+      status: "needed",
+      needed: 10,
+      credits: 6,
+    });
+    expect(neededForCumulative(7.5, record, [belowMin])).toEqual({ status: "nothing-left" });
+  });
+});
+
+describe("chart points", () => {
+  const history = [
+    { label: "S-a", gpa: 7, credits: 30 },
+    { label: "S-b", gpa: null, credits: 0 },
+    { label: "S-c", gpa: 8, credits: 30 },
+  ];
+
+  it("numbers semesters by their place in the history, even when one has no GPA", () => {
+    expect(chartPoints(history, null).map((p) => p.tag)).toEqual(["S1", "S3"]);
+  });
+
+  it("uses Now only for this semester", () => {
+    expect(chartPoints(history, { gpa: 7.5, credits: 12 }).map((p) => p.tag)).toEqual(["S1", "S3", "Now"]);
+    expect(chartPoints(history, null).some((p) => p.tag === "Now")).toBe(false);
+    const now = chartPoints([], { gpa: 6, credits: 6, projected: true });
+    expect(now).toEqual([{ label: "This semester", tag: "Now", gpa: 6, credits: 6, projected: true }]);
+  });
+});
+
+describe("editing a past course's grade", () => {
+  it("Pass → a number starts counting in the GPA", () => {
+    expect(gradeEditPatch({ grade: null, result_label: "Pass" }, "7,5")).toEqual({
+      ok: true,
+      patch: { grade: 7.5, result_label: null, counts_in_gpa: true },
+    });
+  });
+
+  it("a number → Pass stops counting", () => {
+    expect(gradeEditPatch({ grade: 7, result_label: null }, "Pass")).toEqual({
+      ok: true,
+      patch: { grade: null, result_label: "Pass", counts_in_gpa: false },
+    });
+  });
+
+  it("keeps the stored grade and switch when the grade wasn't changed", () => {
+    expect(gradeEditPatch({ grade: 7.25, result_label: null }, "7.25")).toEqual({ ok: true, patch: {} });
+  });
+
+  it("number → number keeps the switch as it is", () => {
+    expect(gradeEditPatch({ grade: 7, result_label: null }, "8")).toEqual({ ok: true, patch: { grade: 8, result_label: null } });
+  });
+
+  it("rejects bad input", () => {
+    expect(gradeEditPatch({ grade: 7, result_label: null }, "11").ok).toBe(false);
   });
 });

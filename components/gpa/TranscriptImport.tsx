@@ -4,8 +4,16 @@ import { AlertTriangle, BookOpen, CircleCheck, LoaderCircle, Plus, ShieldCheck, 
 import { useEffect, useId, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { COURSE_COLUMNS, type Course, PAST_COURSE_COLUMNS, type PastCourseRow, toCourse, toPastCourse } from "@/lib/courses";
-import { defaultCounts, orderSemesters, parseCredits, parseGradeOrResult } from "@/lib/gpa";
-import { formatGrade, formatWeight } from "@/lib/grades";
+import {
+  MAX_COURSE_CREDITS,
+  defaultCounts,
+  gradeText,
+  orderSemesters,
+  parseCredits,
+  parseGradeOrResult,
+  splitDuplicates,
+} from "@/lib/gpa";
+import { formatWeight } from "@/lib/grades";
 import { checkPdfFile, readPdfTextItems } from "@/lib/pdf-text";
 import { type CurrentCourse, parseTranscript } from "@/lib/transcript";
 import { Skeleton, buttonClass, cardClass, errorBox, inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "../ui";
@@ -38,9 +46,19 @@ function readDraft(d: Draft) {
  * Reads a transcript PDF in the browser (never uploaded), shows an editable preview grouped by
  * semester, and saves only the rows you confirm.
  */
+export type ImportResult = {
+  saved: PastCourseRow[];
+  /** Ids of the history rows that were replaced (removed after the new rows were saved). */
+  removedIds: string[];
+  /** Rows not saved because they were already in the history. */
+  skipped: number;
+  /** True when "Replace" was on but the old rows couldn't be removed (the new ones are saved). */
+  removeFailed: boolean;
+};
+
 export function TranscriptImport({
   file,
-  existingCount,
+  existing,
   existingCourseNames,
   onCoursesAdded,
   onSaved,
@@ -49,11 +67,12 @@ export function TranscriptImport({
   onManual,
 }: {
   file: File;
-  existingCount: number;
+  /** The courses already in the history: rows with the same name and semester are skipped. */
+  existing: PastCourseRow[];
   /** Names of the courses already in Courses (current courses with the same name are skipped). */
   existingCourseNames: string[];
   onCoursesAdded: (courses: Course[]) => void;
-  onSaved: (rows: PastCourseRow[], replaced: boolean) => void;
+  onSaved: (result: ImportResult) => void;
   onCancel: () => void;
   onChooseAnother: () => void;
   onManual: () => void;
@@ -93,7 +112,8 @@ export function TranscriptImport({
             semester: r.semester,
             name: r.name,
             credits: formatWeight(r.credits),
-            result: r.grade !== null ? formatGrade(r.grade) : (r.result ?? ""),
+            // The exact grade (7.25 stays 7.25), so the official GPA check and the saved value match.
+            result: gradeText(r.grade, r.result),
             counts: flags[i],
           }));
         setRows(drafts.sort((a, b) => a.group - b.group || a.key - b.key));
@@ -143,7 +163,8 @@ export function TranscriptImport({
       const label = r.name.trim() || `Row ${i + 1}`;
       if (!r.name.trim()) return setError(`Row ${i + 1} needs a course name.`);
       if (!r.semester.trim()) return setError(`${label} needs a semester.`);
-      if (parseCredits(r.credits) === null) return setError(`${label}, ECTS: use a number above 0, e.g. 6.`);
+      if (parseCredits(r.credits) === null)
+        return setError(`${label}, ECTS: use a number above 0 and up to ${MAX_COURSE_CREDITS}, e.g. 6.`);
       const result = parseGradeOrResult(r.result);
       if (!result.ok) return setError(`${label}: ${result.error}`);
       insert.push({
@@ -157,17 +178,30 @@ export function TranscriptImport({
       });
     }
     if (insert.length === 0) return setError("There are no courses to save.");
+    // Without "Replace", courses already in the history (same name and semester) are skipped.
+    const { fresh, skipped } = replace ? { fresh: insert, skipped: [] } : splitDuplicates(insert, existing);
+    if (fresh.length === 0)
+      return setError(
+        `All ${insert.length} courses are already in your history. Switch on "Replace" to save them again instead.`,
+      );
     setError(null);
     setSaving(true);
     const supabase = createClient();
+    // Ids to replace, read before saving: only rows that existed when you chose "Replace".
+    const oldIds = replace ? existing.map((c) => c.id) : [];
     try {
-      if (replace) {
-        const { error: e1 } = await supabase.from("past_courses").delete().not("id", "is", null);
-        if (e1) throw e1;
+      // Save the new rows first: if that fails, nothing in your history is removed.
+      const { data, error: e1 } = await supabase.from("past_courses").insert(fresh).select(PAST_COURSE_COLUMNS);
+      if (e1) throw e1;
+      const saved = (data ?? []).map((r) => toPastCourse(r as Record<string, unknown>));
+      let removeFailed = false;
+      if (oldIds.length > 0) {
+        const { error: e2 } = await supabase.from("past_courses").delete().in("id", oldIds);
+        removeFailed = e2 !== null;
       }
-      const { data, error: e2 } = await supabase.from("past_courses").insert(insert).select(PAST_COURSE_COLUMNS);
-      if (e2) throw e2;
-      onSaved((data ?? []).map((r) => toPastCourse(r as Record<string, unknown>)), replace);
+      setSaving(false);
+      onSaved({ saved, removedIds: removeFailed ? [] : oldIds, skipped: skipped.length, removeFailed });
+      return;
     } catch (err) {
       setError(friendlyDbError(err));
     }
@@ -224,6 +258,11 @@ export function TranscriptImport({
   const groups = [...new Set(rows.map((r) => r.group))];
   const matches = overall !== null && state.official !== null ? Math.abs(overall - state.official) < 0.01 : null;
   const counting = rows.filter((r) => r.counts).length;
+  const duplicates = splitDuplicates(
+    rows.map((r) => ({ name: r.name, semester_label: r.semester })),
+    existing,
+  ).skipped.length;
+  const toSave = replace ? rows.length : rows.length - duplicates;
 
   return (
     <section aria-labelledby={`${id}-title`} className={`${cardClass} space-y-5 p-4 shadow-lift sm:p-6`}>
@@ -306,8 +345,9 @@ export function TranscriptImport({
                   const numeric = d !== null && d.grade !== null;
                   return (
                     <li key={r.key} className="px-1 py-2.5">
-                      <div className="grid grid-cols-[minmax(0,1fr)_4.5rem_6rem] items-end gap-2 sm:grid-cols-[minmax(0,1fr)_5rem_7rem_3rem_2.75rem] sm:items-center">
-                        <div className="col-span-3 sm:col-span-1">
+                      {/* Phones: name on its own row, then ECTS and grade, then the switch and remove. */}
+                      <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-[minmax(0,1fr)_5rem_7rem_3rem_2.75rem] sm:items-center">
+                        <div className="col-span-2 sm:col-span-1">
                           <label htmlFor={`${id}-n-${r.key}`} className={`${labelClass} sm:sr-only`}>
                             Course
                           </label>
@@ -333,7 +373,7 @@ export function TranscriptImport({
                             className={`${inputClass} num sm:mt-0`}
                           />
                         </div>
-                        <div className="flex items-center justify-between gap-2 sm:contents">
+                        <div className="col-span-2 flex items-center justify-between gap-2 sm:contents">
                           <span className="flex items-center gap-1 sm:justify-center">
                             <Switch
                               checked={r.counts && numeric}
@@ -386,12 +426,23 @@ export function TranscriptImport({
         />
       )}
 
-      {existingCount > 0 && (
-        <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-line p-3">
-          <Switch checked={replace} onChange={setReplace} label={`Replace the ${existingCount} courses already in my history`} />
-          <span aria-hidden="true" className="text-sm text-ink">
-            Replace the {existingCount} course{existingCount === 1 ? "" : "s"} already in my history
-          </span>
+      {existing.length > 0 && (
+        <div className="rounded-[var(--radius-md)] border border-line p-3">
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={replace}
+              onChange={setReplace}
+              label={`Replace the ${existing.length} course${existing.length === 1 ? "" : "s"} already in my history`}
+            />
+            <span aria-hidden="true" className="text-sm text-ink">
+              Replace the {existing.length} course{existing.length === 1 ? "" : "s"} already in my history
+            </span>
+          </div>
+          {!replace && duplicates > 0 && (
+            <p className="num mt-1 text-sm text-ink-2">
+              {duplicates} of these course{duplicates === 1 ? " is" : "s are"} already in your history and will be skipped.
+            </p>
+          )}
         </div>
       )}
 
@@ -405,7 +456,7 @@ export function TranscriptImport({
 
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={save} disabled={saving} aria-busy={saving} className={primaryButton}>
-          {saving ? "Saving…" : `Save ${rows.length} course${rows.length === 1 ? "" : "s"}`}
+          {saving ? "Saving…" : `Save ${toSave} course${toSave === 1 ? "" : "s"}`}
         </button>
         <button type="button" onClick={onCancel} className={secondaryButton}>
           Cancel
@@ -461,8 +512,8 @@ function CurrentCourses({
       </p>
       <p className="mt-1 text-sm text-ink-2">These aren&apos;t finished, so they don&apos;t go in your history. Track them in Courses.</p>
       <ul className="mt-2 divide-y divide-line text-sm">
-        {current.map((c) => (
-          <li key={`${c.semester}-${c.name}`} className="flex items-center gap-3 py-1.5">
+        {current.map((c, i) => (
+          <li key={`${i}-${c.semester}-${c.name}`} className="flex items-center gap-3 py-1.5">
             <span className="min-w-0 flex-1 text-ink">{c.name}</span>
             <span className="num text-ink-3">{formatWeight(c.credits)} ECTS</span>
             {isThere(c) && (

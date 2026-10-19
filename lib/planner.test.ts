@@ -13,8 +13,9 @@ import {
 } from "./planner";
 
 let seq = 0;
+// The id is the name (unique within each test course), so plan values read as { Final: 7 }.
 const row = (over: Partial<Assessment>): Assessment => ({
-  id: `p${++seq}`,
+  id: over.name ?? `p${++seq}`,
   course_id: "c",
   parent_id: null,
   name: "A",
@@ -48,12 +49,15 @@ describe("planInput", () => {
     const parts = [8, null, null, null, null].map((grade, i) =>
       row({ name: `Quiz ${i + 1}`, parent_id: parent.id, weight: 4, grade }),
     );
-    const input = planInput([final, parent, ...parts]);
+    // Towards a 5, the open quizzes are planned below the 8: it counts, three slots stay open.
+    const input = planInput([final, parent, ...parts], 5);
     expect(input.rows.map((r) => [r.name, r.weight])).toEqual([
       ["Final Exam", 80],
       ["Quizzes", 15],
     ]);
     expect(input.points).toBe(40);
+    // Without a target every open quiz could still beat the 8 (up to 10).
+    expect(planInput([final, parent, ...parts]).rows.map((r) => r.weight)).toEqual([80, 20]);
   });
 
   it("has no rows when everything is graded", () => {
@@ -305,16 +309,16 @@ describe("graded rows", () => {
     const qs = [9, 4, null, null].map((grade, i) =>
       row({ name: `Quiz ${i + 1}`, parent_id: quizzes.id, weight: 5, grade, position: i }),
     );
-    const input = planInput([finalExam, quizzes, ...qs]);
+    const input = planInput([finalExam, quizzes, ...qs], 7);
     expect(input.list.map((i) => (i.kind === "graded" ? `${i.name} ${i.grade} ${i.counts}` : `plan ${i.key}`))).toEqual([
       "plan Final",
       "Quiz 1 9 true",
       "Quiz 2 4 true",
       "plan Quizzes",
     ]);
-    // Two graded quizzes count with 20 / 3 each; one open slot left.
-    expect(input.points).toBeCloseTo((20 / 3) * 13, 9);
-    expect(input.rows.find((r) => r.key === "Quizzes")!.weight).toBeCloseTo(20 / 3, 9);
+    // Towards a 7 the open quizzes are planned at ~6.9: they replace the 4, the 9 still counts.
+    expect(input.points).toBeCloseTo((20 / 3) * 9, 9);
+    expect(input.rows.find((r) => r.key === "Quizzes")!.weight).toBeCloseTo(40 / 3, 9);
   });
 
   it("a best-of part outside the best K is listed but marked as not counting", () => {
@@ -424,8 +428,10 @@ describe("combinedValue of a parent with parts", () => {
     const q = [9, 5, null].map((grade, i) =>
       row({ name: `Quiz ${i + 1}`, parent_id: quizzes.id, weight: 10, grade, position: i }),
     );
-    // Both graded quizzes count until a third is graded: (9 + 5) / 2 = 7.
-    expect(combinedValue([quizzes, ...q], quizzes.id, { Quizzes: 8 })).toBeCloseTo(7, 9);
+    // The open quiz planned at 8 beats the 5: (9 + 8) / 2.
+    expect(combinedValue([quizzes, ...q], quizzes.id, { Quizzes: 8 })).toBeCloseTo(8.5, 9);
+    // Planned at 4 it doesn't: (9 + 5) / 2.
+    expect(combinedValue([quizzes, ...q], quizzes.id, { Quizzes: 4 })).toBeCloseTo(7, 9);
     const one = [9, null, null].map((grade, i) =>
       row({ name: `Q${i + 1}`, parent_id: quizzes.id, weight: 10, grade, position: i }),
     );
@@ -433,3 +439,61 @@ describe("combinedValue of a parent with parts", () => {
     expect(combinedValue([quizzes, ...one], quizzes.id, { Quizzes: 8 })).toBeCloseTo(8.5, 9);
   });
 });
+
+describe("regressions from the bug sweep", () => {
+  it("two assessments with the same name get their own rows and minimums", () => {
+    const course = [
+      row({ id: "q1", name: "Quiz", weight: 20 }),
+      row({ id: "q2", name: "Quiz", weight: 30, min_grade: 6 }),
+      row({ id: "f", name: "Final", weight: 50 }),
+    ];
+    const plan = planInput(course, 5);
+    expect(plan.rows.map((r) => [r.key, r.weight, r.minGrade])).toEqual([
+      ["q1", 20, null],
+      ["q2", 30, 6],
+      ["f", 50, null],
+    ]);
+    const v = moveRow(plan, evenSplit(plan, 5), [], "q1", 9, 5);
+    expect(v.q1).toBe(9);
+    expect(v.q2).toBeGreaterThanOrEqual(6);
+  });
+
+  it("a minimum on a parent with parts is checked against the plan", () => {
+    const mid = row({ name: "Midterm", weight: 50, min_grade: 5 });
+    const course = [
+      row({ name: "Final", weight: 50, grade: 10 }),
+      mid,
+      row({ name: "M1", weight: 25, parent_id: mid.id }),
+      row({ name: "M2", weight: 25, parent_id: mid.id }),
+    ];
+    const plan = planInput(course, 5);
+    const v = evenSplit(plan, 5);
+    const status = planStatus(plan, v, [], 5);
+    expect(status.belowMinimum).toEqual({ name: "Midterm", minGrade: 5 });
+    expect(status.passes).toBe(false);
+    expect(planMessage(status, null)).toMatch(/minimum on Midterm/);
+    const ok = planStatus(plan, { M1: 5, M2: 5 }, [], 5);
+    expect(ok.belowMinimum).toBeNull();
+    expect(ok.passes).toBe(true);
+  });
+
+  it("a real grade below its minimum: the plan never says Pass", () => {
+    const course = [row({ name: "Final", weight: 50, grade: 3, min_grade: 4 }), row({ name: "Mid", weight: 50 })];
+    const plan = planInput(course, 5);
+    const status = planStatus(plan, evenSplit(plan, 5), [], 5);
+    expect(status.passes).toBe(false);
+    expect(status.reachesTarget).toBe(false);
+    expect(computeCourse(course, 5).badge).toBe("Below minimum");
+  });
+
+  it("pass uses the unrounded projection, like the result panel", () => {
+    const course = [row({ name: "A", weight: 60, grade: 1.6 }), row({ name: "B", weight: 40 })];
+    const plan = planInput(course, 5);
+    const status = planStatus(plan, { B: 10 }, [], 5);
+    // 4.96: shown as 4.9, below the pass mark, and the result panel agrees.
+    expect(status.passes).toBe(false);
+    expect(status.reachesTarget).toBe(false);
+    expect(computeCourse(course, 5).headline).toMatch(/4\.9/);
+  });
+});
+

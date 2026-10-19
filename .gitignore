@@ -33,3 +33,7 @@ screenshots/
 
 # your own transcript and any test that uses it (never commit)
 transcript-test/
+
+# Playwright output
+/test-results/
+/playwright-report/

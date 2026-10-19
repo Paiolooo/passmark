@@ -11,7 +11,7 @@ import {
   toPastCourse,
   toPastSemester,
 } from "@/lib/courses";
-import { parseCredits, parseGpa, parseGradeOrResult } from "@/lib/gpa";
+import { MAX_COURSE_CREDITS, MAX_SEMESTER_CREDITS, nameKey, parseCredits, parseGpa, parseGradeOrResult } from "@/lib/gpa";
 import { Card, Segmented, buttonClass, errorBox, inputClass, labelClass, primaryButton } from "../ui";
 import { friendlyDbError } from "../useSaver";
 
@@ -56,14 +56,14 @@ export function ManualAdd({
 
     if (mode === "semester") {
       const g = parseGpa(gpa);
-      const c = parseCredits(credits);
+      const c = parseCredits(credits, MAX_SEMESTER_CREDITS);
       if (g === null) return setError("GPA: use a number from 0 to 10, e.g. 7,4.");
-      if (c === null) return setError("Credits: use a number above 0, e.g. 30.");
+      if (c === null) return setError(`Credits: use a number above 0 and up to ${MAX_SEMESTER_CREDITS}, e.g. 30.`);
       setError(null);
       setSaving(true);
       try {
-        // One typed GPA per semester: typing it again for the same semester updates it.
-        const existing = semesters.find((s) => s.label === semester);
+        // One typed GPA per semester: typing it again for the same semester (any case) updates it.
+        const existing = semesters.find((s) => nameKey(s.label) === nameKey(semester));
         const query = existing
           ? supabase.from("past_semesters").update({ gpa: g, credits: c }).eq("id", existing.id)
           : supabase.from("past_semesters").insert({
@@ -86,16 +86,18 @@ export function ManualAdd({
       return;
     }
 
-    const filled = rows.filter((r) => r.name.trim() || r.credits.trim() || r.result.trim());
-    if (filled.length === 0) return setError("Add at least one course.");
+    const isFilled = (r: Draft) => r.name.trim() || r.credits.trim() || r.result.trim();
+    if (!rows.some(isFilled)) return setError("Add at least one course.");
     const insert = [];
-    for (const [i, r] of filled.entries()) {
+    // `i` is the row's place in the form, so "Course 3" in an error is the field labelled Course 3.
+    for (const [i, r] of rows.entries()) {
+      if (!isFilled(r)) continue;
       const name = r.name.trim();
       const c = parseCredits(r.credits);
       const result = parseGradeOrResult(r.result);
       const which = name || `Course ${i + 1}`;
       if (!name) return setError(`Course ${i + 1} needs a name.`);
-      if (c === null) return setError(`${which}, ECTS: use a number above 0, e.g. 6.`);
+      if (c === null) return setError(`${which}, ECTS: use a number above 0 and up to ${MAX_COURSE_CREDITS}, e.g. 6.`);
       if (!result.ok) return setError(`${which}: ${result.error}`);
       insert.push({
         name,
@@ -104,7 +106,7 @@ export function ManualAdd({
         grade: result.grade,
         result_label: result.result_label,
         counts_in_gpa: result.grade !== null,
-        position: nextPosition + i,
+        position: nextPosition + insert.length,
       });
     }
     setError(null);
@@ -191,7 +193,11 @@ export function ManualAdd({
           <div>
             <ul className="space-y-3">
               {rows.map((r, i) => (
-                <li key={r.key} className="grid grid-cols-[minmax(0,1fr)_4.5rem_6rem] items-end gap-2 sm:grid-cols-[minmax(0,1fr)_5rem_8rem_2.75rem]">
+                // Phones: the name on its own row, then ECTS, grade and remove.
+                <li
+                  key={r.key}
+                  className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.75rem] items-end gap-2 sm:grid-cols-[minmax(0,1fr)_5rem_8rem_2.75rem]"
+                >
                   <div className="col-span-3 sm:col-span-1">
                     <label htmlFor={`${id}-name-${r.key}`} className={labelClass}>
                       Course {i + 1}

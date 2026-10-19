@@ -6,6 +6,7 @@ import type { Course, PastCourseRow, PastSemesterRow } from "@/lib/courses";
 import type { Reference } from "@/lib/ranking";
 import {
   type GpaCourse,
+  chartPoints,
   creditsCompleted,
   cumulativeGpa,
   currentSemester,
@@ -14,9 +15,10 @@ import {
   neededForCumulative,
   parseGpa,
   projectedSemester,
+  withoutHistoryCourses,
 } from "@/lib/gpa";
 import { computeCourse, formatGrade, formatWeight } from "@/lib/grades";
-import { GpaChart, type GpaPoint } from "../GpaChart";
+import { GpaChart } from "../GpaChart";
 import { Card, EmptyState, inputClass, primaryButton, secondaryButton } from "../ui";
 import { AnimatedNumber } from "../ui/AnimatedNumber";
 import { usePdfPicker } from "../usePdfPicker";
@@ -51,11 +53,13 @@ export function GpaApp({
   const [pastCourses, setPastCourses] = useState(initialPastCourses);
   const [adding, setAdding] = useState(false);
   const [targetText, setTargetText] = useState("");
+  const [importNote, setImportNote] = useState<string | null>(null);
   const picker = usePdfPicker();
 
   const gpaCourses: GpaCourse[] = useMemo(
     () =>
       courses.map((c) => ({
+        id: c.id,
         name: c.name,
         credits: c.credits,
         target: c.target_grade,
@@ -67,20 +71,23 @@ export function GpaApp({
   const record = historyRecord(history);
   const current = currentSemester(gpaCourses);
   const projected = projectedSemester(gpaCourses);
-  const overall = cumulativeGpa(record, current, gpaCourses);
-  const ifTargets = cumulativeGpa(record, projected, gpaCourses);
-  const credits = creditsCompleted(history, gpaCourses);
+  // A course both in Courses and in your history counts once, through the history.
+  const { kept, inHistory } = withoutHistoryCourses(gpaCourses, pastCourses);
+  const overall = cumulativeGpa(record, currentSemester(kept), kept);
+  const keptProjected = projectedSemester(kept);
+  const ifTargets = cumulativeGpa(record, keptProjected, kept);
+  const credits = creditsCompleted(history, kept);
   const targetValue = parseGpa(targetText);
-  const target = targetValue === null ? null : neededForCumulative(targetValue, record, gpaCourses);
+  const target = targetValue === null ? null : neededForCumulative(targetValue, record, kept);
 
-  const points: GpaPoint[] = [
-    ...history.filter((h) => h.gpa !== null).map((h) => ({ label: h.label, gpa: h.gpa as number, credits: h.credits })),
-    ...(current.gpa !== null && current.excluded.length === 0
-      ? [{ label: "This semester", gpa: current.gpa, credits: current.credits }]
+  const points = chartPoints(
+    history,
+    current.gpa !== null && current.excluded.length === 0
+      ? { gpa: current.gpa, credits: current.credits }
       : projected.gpa !== null
-        ? [{ label: "This semester", gpa: projected.gpa, credits: projected.credits, projected: true }]
-        : []),
-  ];
+        ? { gpa: projected.gpa, credits: projected.credits, projected: true }
+        : null,
+  );
 
   const hasHistory = pastCourses.length > 0 || semesters.length > 0;
   const importing = picker.file !== null;
@@ -89,7 +96,14 @@ export function GpaApp({
 
   const historyButtons = (
     <>
-      <button type="button" onClick={() => picker.open()} className={primaryButton}>
+      <button
+        type="button"
+        onClick={() => {
+          setImportNote(null);
+          picker.open();
+        }}
+        className={primaryButton}
+      >
         <FileUp aria-hidden="true" size={16} />
         Import transcript PDF
       </button>
@@ -138,9 +152,21 @@ export function GpaApp({
           <p className="mt-5 border-t border-line pt-4 text-sm text-ink-2">
             Not counted this semester yet:{" "}
             {current.excluded.map((e, i) => (
-              <span key={e.name}>
+              <span key={e.id ?? `${i}-${e.name}`}>
                 {i > 0 && "; "}
                 <span className="wrap-anywhere">{e.name}</span> ({e.reason})
+              </span>
+            ))}
+            .
+          </p>
+        )}
+        {inHistory.length > 0 && (
+          <p className="mt-4 border-t border-line pt-4 text-sm text-ink-2">
+            Counted once, through your history (also in Courses):{" "}
+            {inHistory.map((c, i) => (
+              <span key={c.id ?? `${i}-${c.name}`}>
+                {i > 0 && "; "}
+                <span className="wrap-anywhere">{c.name}</span>
               </span>
             ))}
             .
@@ -190,7 +216,7 @@ export function GpaApp({
           )}
           {target && targetValue !== null && <TargetLine target={target} goal={targetValue} />}
         </div>
-        {ifTargets.gpa !== null && projected.counted.length > 0 && (
+        {ifTargets.gpa !== null && keptProjected.counted.length > 0 && (
           <p className="num mt-4 border-t border-line pt-4 text-sm text-ink-2">
             If you hit your course targets, your overall GPA will be{" "}
             <strong className="text-ink">{formatGrade(ifTargets.gpa)}</strong>.
@@ -202,7 +228,7 @@ export function GpaApp({
         references={references}
         semesterGpas={history.map((h) => ({ label: h.label, gpa: h.gpa }))}
         overallGpa={overall.gpa}
-        projectedGpa={projected.counted.length > 0 ? ifTargets.gpa : null}
+        projectedGpa={keptProjected.counted.length > 0 ? ifTargets.gpa : null}
       />
 
       <section aria-labelledby={`${id}-history`} className="mt-12">
@@ -215,6 +241,9 @@ export function GpaApp({
           )}
         </div>
         {picker.input}
+        <p role="status" className={importNote && !importing ? "mt-3 text-sm font-medium text-brand-ink" : "sr-only"}>
+          {importing ? null : importNote}
+        </p>
 
         {!historyAvailable ? (
           <p role="status" className="mt-4 rounded-[var(--radius-md)] border border-warn-line bg-warn-tint p-4 text-sm text-warn">
@@ -225,12 +254,19 @@ export function GpaApp({
             {importing && (
               <TranscriptImport
                 file={picker.file as File}
-                existingCount={pastCourses.length}
+                existing={pastCourses}
                 existingCourseNames={courses.map((c) => c.name)}
                 onCoursesAdded={(added) => setCourses((prev) => [...added, ...prev])}
-                onSaved={(saved, replaced) => {
+                onSaved={({ saved, removedIds, skipped, removeFailed }) => {
                   picker.clear();
-                  setPastCourses((prev) => (replaced ? saved : [...prev, ...saved]));
+                  setPastCourses((prev) => [...prev.filter((c) => !removedIds.includes(c.id)), ...saved]);
+                  setImportNote(
+                    `Saved ${saved.length} course${saved.length === 1 ? "" : "s"}.` +
+                      (skipped > 0
+                        ? ` ${skipped} course${skipped === 1 ? "" : "s"} already in your history ${skipped === 1 ? "was" : "were"} skipped.`
+                        : "") +
+                      (removeFailed ? " Your older courses couldn't be removed, so delete the ones you don't need below." : ""),
+                  );
                 }}
                 onCancel={() => picker.clear()}
                 onChooseAnother={() => picker.open()}

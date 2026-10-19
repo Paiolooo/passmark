@@ -11,11 +11,12 @@ import {
   computeCourse,
   countedItems,
   formatGrade,
+  formatResult,
   formatWeight,
   parseTarget,
   weightsMessage,
 } from "@/lib/grades";
-import { parseCredits } from "@/lib/gpa";
+import { MAX_COURSE_CREDITS, parseCredits } from "@/lib/gpa";
 import type { CourseUpdater } from "./CoursesApp";
 import { AddAssessmentForm, type NewAssessment } from "./AddAssessmentForm";
 import type { EditorActions } from "./AssessmentEditor";
@@ -63,8 +64,8 @@ export function CourseCard({
 }) {
   const id = useId();
   const [open, setOpen] = useState(initiallyOpen);
-  // Parents whose parts are shown; remembered while the page is open.
-  const [expandedParts, setExpandedParts] = useState<string[]>([]);
+  // Parents whose parts you hid (parts show by default); remembered while the page is open.
+  const [collapsedParts, setCollapsedParts] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
   const [importWarning, setImportWarning] = useState<string | null>(null);
   const { status, save } = useSaver();
@@ -134,6 +135,14 @@ export function CourseCard({
   }
 
   async function updateAssessment(assessmentId: string, patch: Partial<Assessment>) {
+    // Show the change straight away (result and planner update instantly); undo it if saving fails.
+    const before = course.assessments.find((a) => a.id === assessmentId);
+    const patchRow = (row: Assessment | undefined) =>
+      onUpdate(course.id, (c) => ({
+        ...c,
+        assessments: c.assessments.map((a) => (a.id === assessmentId && row ? row : a)),
+      }));
+    if (before) patchRow({ ...before, ...patch });
     const { ok, data } = await save(() =>
       supabase()
         .from("assessments")
@@ -148,7 +157,7 @@ export function CourseCard({
         ...c,
         assessments: c.assessments.map((a) => (a.id === assessmentId ? row : a)),
       }));
-    }
+    } else if (!ok) patchRow(before);
     return ok;
   }
 
@@ -164,21 +173,7 @@ export function CourseCard({
   }
 
   async function splitAssessment(parent: Assessment, parts: NewPart[], bestOf: number | null) {
-    const updated = await save(() =>
-      supabase()
-        .from("assessments")
-        .update({ best_of: bestOf, grade: null })
-        .eq("id", parent.id)
-        .select(ASSESSMENT_COLUMNS)
-        .single(),
-    );
-    if (!updated.ok || !updated.data) return false;
-    const parentRow = toAssessment(updated.data as Record<string, unknown>);
-    onUpdate(course.id, (c) => ({
-      ...c,
-      assessments: c.assessments.map((a) => (a.id === parent.id ? parentRow : a)),
-    }));
-
+    // Parts first: if they can't be saved, the parent (and its grade) stays exactly as it was.
     const inserted = await save(() =>
       supabase()
         .from("assessments")
@@ -195,7 +190,24 @@ export function CourseCard({
     );
     if (!inserted.ok || !inserted.data) return false;
     const rows = (inserted.data as Record<string, unknown>[]).map(toAssessment);
-    onUpdate(course.id, (c) => ({ ...c, assessments: [...c.assessments, ...rows] }));
+
+    const updated = await save(() =>
+      supabase()
+        .from("assessments")
+        .update({ best_of: bestOf, grade: null })
+        .eq("id", parent.id)
+        .select(ASSESSMENT_COLUMNS)
+        .single(),
+    );
+    if (!updated.ok || !updated.data) {
+      await supabase().from("assessments").delete().in("id", rows.map((r) => r.id));
+      return false;
+    }
+    const parentRow = toAssessment(updated.data as Record<string, unknown>);
+    onUpdate(course.id, (c) => ({
+      ...c,
+      assessments: [...c.assessments.map((a) => (a.id === parent.id ? parentRow : a)), ...rows],
+    }));
     return true;
   }
 
@@ -347,9 +359,9 @@ export function CourseCard({
                   plan={plan}
                   onPlanChange={setPlan}
                   actions={editorActions}
-                  expanded={expandedParts}
-                  onToggleExpanded={(parentId) =>
-                    setExpandedParts((ids) =>
+                  collapsed={collapsedParts}
+                  onToggleCollapsed={(parentId) =>
+                    setCollapsedParts((ids) =>
                       ids.includes(parentId) ? ids.filter((x) => x !== parentId) : [...ids, parentId],
                     )
                   }
@@ -397,7 +409,7 @@ export function CourseCard({
 
             <div className="grid gap-8 sm:grid-cols-[1fr_auto]">
               <TargetPicker target={course.target_grade} onSave={setTarget} />
-              <CreditsField credits={course.credits} onSave={setCredits} />
+              <CreditsField key={course.credits ?? "none"} credits={course.credits} onSave={setCredits} />
             </div>
 
             <div className="border-t border-line pt-5">
@@ -505,7 +517,7 @@ function CreditsField({
   async function commit() {
     const value = text.trim() === "" ? null : parseCredits(text);
     if (text.trim() !== "" && value === null) {
-      setError("Use a number above 0, e.g. 6 or 7,5.");
+      setError(`Use a number above 0 and up to ${MAX_COURSE_CREDITS}, e.g. 6 or 7,5.`);
       return;
     }
     setError(null);
@@ -560,9 +572,9 @@ function ResultPanel({
 }) {
   const big =
     result.outcome === "needed"
-      ? { value: result.needed!, label: "needed on what's left" }
+      ? { value: result.needed!, label: "needed on what's left", format: formatGrade }
       : result.outcome === "final"
-        ? { value: result.finalGrade!, label: "final grade" }
+        ? { value: result.finalGrade!, label: "final grade", format: formatResult }
         : null;
 
   return (
@@ -579,6 +591,7 @@ function ResultPanel({
           <p className="mt-3 flex flex-wrap items-baseline gap-x-3">
             <AnimatedNumber
               value={big.value}
+              format={big.format}
               className={`text-[4rem] font-semibold leading-[0.9] tracking-[-0.04em] ${TONE_TEXT[result.tone]}`}
             />
             <span className="text-sm text-ink-2">{big.label}</span>
@@ -593,7 +606,7 @@ function ResultPanel({
           </p>
         ))}
         {result.averageSoFar !== null && (
-          <p className="num mt-3 text-sm text-ink-2">Average so far: {formatGrade(result.averageSoFar)}</p>
+          <p className="num mt-3 text-sm text-ink-2">Average so far: {formatResult(result.averageSoFar)}</p>
         )}
         {weightItems.length > 0 && (
           <div className="mt-4 max-w-sm">

@@ -1,6 +1,8 @@
+import type { ChartPoint } from "@/lib/gpa";
 import { formatGrade, formatWeight } from "@/lib/grades";
 
-export type GpaPoint = { label: string; gpa: number; credits: number | null; projected?: boolean };
+/** Built with `chartPoints` (lib/gpa.ts): `tag` is S1, S2… by semester, "Now" for this semester. */
+export type GpaPoint = ChartPoint;
 
 const W = 600;
 const H = 220;
@@ -50,8 +52,8 @@ export function GpaChart({ points }: { points: GpaPoint[] }) {
             </g>
           ))}
           {points.map((p, i) => (
-            <text key={p.label} x={x(i)} y={H - 10} textAnchor="middle" fontSize="12" fill="var(--ink-2)">
-              {i === points.length - 1 ? "Now" : `S${i + 1}`}
+            <text key={p.tag} x={x(i)} y={H - 10} textAnchor="middle" fontSize="12" fill="var(--ink-2)">
+              {p.tag}
             </text>
           ))}
           <path d={solidPath} fill="none" stroke="var(--brand)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
@@ -60,7 +62,7 @@ export function GpaChart({ points }: { points: GpaPoint[] }) {
           )}
           {points.map((p, i) => (
             <circle
-              key={p.label}
+              key={p.tag}
               cx={x(i)}
               cy={y(p.gpa)}
               r="5"
@@ -87,10 +89,10 @@ export function GpaChart({ points }: { points: GpaPoint[] }) {
           </tr>
         </thead>
         <tbody>
-          {points.map((p, i) => (
-            <tr key={p.label} className="border-b border-line last:border-0">
+          {points.map((p) => (
+            <tr key={p.tag} className="border-b border-line last:border-0">
               <th scope="row" className="py-1.5 pr-2 font-normal text-ink">
-                <span className="text-ink-2">{i === points.length - 1 ? "Now" : `S${i + 1}`} · </span>
+                <span className="text-ink-2">{p.tag} · </span>
                 {p.label}
                 {p.projected && <span className="text-ink-2"> (projected)</span>}
               </th>

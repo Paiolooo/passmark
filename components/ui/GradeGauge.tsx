@@ -1,6 +1,6 @@
 "use client";
 
-import { PASS_GRADE, type Tone, formatGrade } from "@/lib/grades";
+import { PASS_GRADE, type Tone, formatGrade, formatResult } from "@/lib/grades";
 import { useTweened } from "./AnimatedNumber";
 
 const W = 280;
@@ -58,7 +58,7 @@ export function GradeGauge({
   const label =
     value === null
       ? `No projected grade yet. Pass mark ${formatGrade(PASS_GRADE)}, target ${formatGrade(target)}.`
-      : `${caption}: ${formatGrade(value)} out of 10. Pass mark ${formatGrade(PASS_GRADE)}, target ${formatGrade(target)}.`;
+      : `${caption}: ${formatResult(value)} out of 10. Pass mark ${formatGrade(PASS_GRADE)}, target ${formatGrade(target)}.`;
 
   return (
     <figure className={`m-0 w-full ${size === "sm" ? "max-w-[220px]" : "max-w-[280px]"}`}>
@@ -121,7 +121,7 @@ export function GradeGauge({
           fill={value === null ? "var(--ink-3)" : "var(--ink)"}
           className="num"
         >
-          {value === null ? "–" : formatGrade(shown)}
+          {value === null ? "–" : formatResult(shown)}
         </text>
       </svg>
       <figcaption aria-hidden="true" className="-mt-2 text-center text-xs font-medium text-ink-2">

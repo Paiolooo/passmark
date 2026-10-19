@@ -34,4 +34,4 @@ drop policy if exists "ranking_reference_select_authenticated" on public.ranking
 
 create policy "ranking_reference_select_authenticated" on public.ranking_reference
   for select to authenticated
-  using (true);
+  using ((select auth.uid()) is not null);

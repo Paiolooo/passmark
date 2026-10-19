@@ -9,6 +9,7 @@ import {
   inverseNormalCdf,
   latestReference,
   neededFor,
+  neededShown,
   normalCdf,
   positionFor,
   programsOf,
@@ -157,5 +158,21 @@ describe("labels", () => {
     expect(formatTop(0.083)).toBe("8%");
     expect(formatTop(0.0042)).toBe("0.4%");
     expect(formatPosition({ p: 0.083, beyond: null })).toBe("Top ~8%");
+  });
+});
+
+describe("GPA needed for top N%, as shown", () => {
+  it("rounds up, never too optimistic", () => {
+    expect(neededShown(8.42, null).shown).toBe(8.5);
+    expect(neededShown(8.4, null).shown).toBe(8.4);
+    expect(neededShown(9.999999, null).shown).toBe(10);
+  });
+
+  it("you're there only when your GPA reaches the number shown", () => {
+    // 8.44 would round to 8.4 and claim "8.4 · you're there" for 8.43; now it shows 8.5.
+    expect(neededShown(8.44, 8.43)).toEqual({ shown: 8.5, there: false });
+    expect(neededShown(8.44, 8.5)).toEqual({ shown: 8.5, there: true });
+    expect(neededShown(8.4, 8.4)).toEqual({ shown: 8.4, there: true });
+    expect(neededShown(8.4, null).there).toBe(false);
   });
 });

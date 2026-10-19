@@ -9,6 +9,7 @@ import {
   formatPosition,
   latestReference,
   neededFor,
+  neededShown,
   positionFor,
   programsOf,
   rankFor,
@@ -45,12 +46,15 @@ export function RankingCard({
   const semesters = semestersOf(program);
   // Your last completed semester: the latest one in your history that has reference data.
   const lastCompleted = [...semesterGpas].reverse().find((s) => s.gpa !== null && semesters.includes(s.label));
-  const [semester, setSemester] = useState(lastCompleted?.label ?? semesters[semesters.length - 1] ?? "");
+  // Until you pick a semester or type a GPA, both follow your history as it changes.
+  const [chosen, setChosen] = useState<string | null>(null);
+  const semester =
+    chosen !== null && semesters.includes(chosen) ? chosen : (lastCompleted?.label ?? semesters[semesters.length - 1] ?? "");
   const historyGpa = (label: string) => semesterGpas.find((s) => s.label === label)?.gpa ?? null;
-  const [gpaText, setGpaText] = useState(() => {
-    const g = historyGpa(semester);
-    return g === null ? "" : formatGrade(g);
-  });
+  const [typed, setTyped] = useState<{ semester: string; text: string } | null>(null);
+  const fromHistory = historyGpa(semester);
+  const gpaText =
+    typed !== null && typed.semester === semester ? typed.text : fromHistory === null ? "" : formatGrade(fromHistory);
   const [target, setTarget] = useState(0.1);
 
   const ref = referenceFor(references, program, semester);
@@ -61,9 +65,8 @@ export function RankingCard({
   const showOverall = latestRm !== null && (overallGpa !== null || projectedGpa !== null);
 
   function chooseSemester(label: string) {
-    setSemester(label);
-    const g = historyGpa(label);
-    setGpaText(g === null ? "" : formatGrade(g));
+    setChosen(label);
+    setTyped(null);
   }
 
   if (programs.length === 0) {
@@ -96,8 +99,8 @@ export function RankingCard({
                 value={program}
                 onChange={(e) => {
                   setProgram(e.target.value);
-                  const next = semestersOf(e.target.value);
-                  chooseSemester(next[next.length - 1] ?? "");
+                  setChosen(null);
+                  setTyped(null);
                 }}
                 className={inputClass}
               >
@@ -127,7 +130,7 @@ export function RankingCard({
             inputMode="decimal"
             placeholder="e.g. 8,4"
             value={gpaText}
-            onChange={(e) => setGpaText(e.target.value)}
+            onChange={(e) => setTyped({ semester, text: e.target.value })}
             aria-describedby={`${id}-gpa-hint`}
             className={`${inputClass} num sm:w-56`}
           />
@@ -216,12 +219,14 @@ function Needed({ rm, target, gpa }: { rm: ReferenceModel; target: number; gpa: 
   const needed = neededFor(target, rm);
   if (!needed) return <p className="mt-3 text-ink-2">The reference data doesn&apos;t cover {label} for this semester.</p>;
   if (!needed.reachable) return <p className="mt-3 text-ink">{label} would need a GPA above 10 that semester.</p>;
+  // Rounded up, never too optimistic; "you're there" agrees with the number shown.
+  const { shown, there } = neededShown(needed.gpa, gpa);
   return (
     <p className="num mt-3 flex flex-wrap items-baseline gap-x-3">
-      <span className="text-[2rem] font-semibold leading-none tracking-[-0.03em] text-ink">{formatGrade(needed.gpa)}</span>
+      <span className="text-[2rem] font-semibold leading-none tracking-[-0.03em] text-ink">{formatGrade(shown)}</span>
       <span className="text-ink-2">
         semester GPA for {label}
-        {gpa !== null && gpa >= needed.gpa && " · you're there"}
+        {there && " · you're there"}
       </span>
     </p>
   );

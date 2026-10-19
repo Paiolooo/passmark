@@ -188,36 +188,36 @@ body {
 }
 
 /* A course opening: height grows from 0 where supported, otherwise it just appears. */
-.expand-in {
-  interpolate-size: allow-keywords;
-  overflow: clip;
-  transition:
-    height var(--dur) var(--ease-out),
-    opacity var(--dur) var(--ease-out);
-}
-@starting-style {
-  .expand-in {
-    height: 0;
+/* Something that just opened (a course, a GPA row): a short fade. No height animation and no
+   clipping, so nothing inside can be cut off or hidden while it grows. */
+@keyframes expand-in {
+  from {
     opacity: 0;
+    transform: translateY(-4px);
   }
 }
+.expand-in {
+  animation: expand-in var(--dur) var(--ease-out);
+}
 
-/* One row of the grades list: name and menu on top, slider and value below on phones;
-   one line (name · slider · value · menu) from 640px. */
+/* One row of the grades list. Phones: name and menu, then slider and value, then "Add grade" /
+   "Edit" on its own line so names and sliders keep their room. From 640px one line:
+   name · slider · value · action · menu. */
 .grade-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
     "name menu"
-    "track value";
+    "track value"
+    "action action";
   column-gap: 0.75rem;
   align-items: center;
 }
 @media (min-width: 640px) {
   .grade-row {
     /* Fixed name column so every slider lines up; parts pass a narrower one for their indent. */
-    grid-template-columns: var(--name-w, 15rem) minmax(0, 1fr) auto auto;
-    grid-template-areas: "name track value menu";
+    grid-template-columns: var(--name-w, 13rem) minmax(0, 1fr) auto 7.5rem auto;
+    grid-template-areas: "name track value action menu";
     column-gap: 1rem;
   }
 }

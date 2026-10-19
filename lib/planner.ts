@@ -4,9 +4,10 @@ import {
   type Assessment,
   PASS_GRADE,
   buildCourseModel,
+  courseModelFor,
   effectiveBestOf,
+  formatGrade,
   groupAssessments,
-  round1,
 } from "./grades";
 
 const EPS = 1e-9;
@@ -15,6 +16,7 @@ const TOLERANCE = 1e-6;
 
 /** One slider: an assessment (or the open slots of a "best K of N" group) without a grade. */
 export type PlanRow = {
+  /** The assessment id (the parent's id for "best K of N" slots): never shared by two rows. */
   key: string;
   name: string;
   weight: number;
@@ -47,31 +49,83 @@ export type PlanInput = {
   points: number;
   /** Sum of all weights. */
   totalWeight: number;
+  /** Minimums on a parent's combined grade, checked against the plan (see planStatus). */
+  groups: GroupMinimum[];
+  /** A real grade already below its minimum (name), or null. */
+  failedMinimum: string | null;
+};
+
+/** A minimum on a parent with parts: its combined grade, real grades and plans, must reach it. */
+export type GroupMinimum = {
+  key: string;
+  name: string;
+  minGrade: number;
+  /** Best K of N: how many count (plain average), or null for a weighted average. */
+  bestOf: number | null;
+  parts: { weight: number; grade: number | null; rowKey: string }[];
 };
 
 /** Planned grade per row key. Kept exact; shown rounded up to 1 decimal. */
 export type PlanValues = Record<string, number>;
 
-/** The sliders for a course: ungraded counted items, grouped by name (best-of slots share one). */
-export function planInput(assessments: Assessment[]): PlanInput {
-  const { items, minimums } = buildCourseModel(assessments);
+/**
+ * The sliders for a course: ungraded counted items, one row per assessment (one per "best K"
+ * group). With a target, "best K of N" groups count the parts a plan towards it would count.
+ */
+export function planInput(assessments: Assessment[], target?: number): PlanInput {
+  const { items, minimums } = target === undefined ? buildCourseModel(assessments) : courseModelFor(assessments, target);
   const rows: PlanRow[] = [];
   for (const item of items) {
     if (item.grade !== null || item.weight <= EPS) continue;
-    const existing = rows.find((r) => r.key === item.name);
+    const key = item.key ?? item.name;
+    const existing = rows.find((r) => r.key === key);
     if (existing) {
       existing.weight += item.weight;
       continue;
     }
-    const rule = minimums.find((m) => m.name === item.name && m.grade === null);
-    rows.push({ key: item.name, name: item.name, weight: item.weight, minGrade: rule?.minGrade ?? null });
+    const rule = minimums.find((m) => (m.key ?? m.name) === key && m.grade === null);
+    rows.push({ key, name: item.name, weight: item.weight, minGrade: rule?.minGrade ?? null });
   }
+  const failed = minimums.find((m) => m.grade !== null && m.grade < m.minGrade - EPS);
   return {
     rows,
     list: planList(assessments, rows),
     points: items.reduce((sum, i) => sum + (i.grade === null ? 0 : i.weight * i.grade), 0),
     totalWeight: items.reduce((sum, i) => sum + i.weight, 0),
+    groups: groupMinimums(assessments),
+    failedMinimum: failed?.name ?? null,
   };
+}
+
+function groupMinimums(assessments: Assessment[]): GroupMinimum[] {
+  return groupAssessments(assessments)
+    .filter(({ assessment: a, parts }) => parts.length > 0 && a.min_grade !== null)
+    .map(({ assessment: a, parts }) => {
+      const bestOf = effectiveBestOf(a, parts);
+      return {
+        key: a.id,
+        name: a.name,
+        minGrade: a.min_grade as number,
+        bestOf,
+        parts: parts.map((p) => ({ weight: p.weight, grade: p.grade, rowKey: bestOf === null ? p.id : a.id })),
+      };
+    });
+}
+
+/** A parent's combined grade with real grades and planned values (null if nothing to combine). */
+function groupValue(group: Pick<GroupMinimum, "bestOf" | "parts">, values: PlanValues): number | null {
+  const known = group.parts
+    .map((p) => ({ weight: p.weight, value: p.grade ?? values[p.rowKey] }))
+    .filter((p): p is { weight: number; value: number } => p.value !== undefined);
+  if (known.length === 0) return null;
+  if (group.bestOf !== null) {
+    const best = known.map((p) => p.value).sort((x, y) => y - x).slice(0, group.bestOf);
+    return best.reduce((s, v) => s + v, 0) / best.length;
+  }
+  const weight = known.reduce((s, p) => s + p.weight, 0);
+  return weight > EPS
+    ? known.reduce((s, p) => s + p.weight * p.value, 0) / weight
+    : known.reduce((s, p) => s + p.value, 0) / known.length;
 }
 
 /** Every assessment in course order; graded ones are fixed, ungraded ones point at their row. */
@@ -89,7 +143,7 @@ function planList(assessments: Assessment[], rows: PlanRow[]): PlanListItem[] {
       if (a.grade !== null) {
         list.push({ kind: "graded", id: a.id, name: a.name, weight: a.weight, grade: a.grade, parent: null, counts: true });
       } else {
-        plan(a.name, null);
+        plan(a.id, null);
       }
       continue;
     }
@@ -99,7 +153,7 @@ function planList(assessments: Assessment[], rows: PlanRow[]): PlanListItem[] {
         if (p.grade !== null) {
           list.push({ kind: "graded", id: p.id, name: p.name, weight: p.weight, grade: p.grade, parent: a.name, counts: true });
         } else {
-          plan(p.name, a.name);
+          plan(p.id, a.name);
         }
       }
     } else {
@@ -119,7 +173,7 @@ function planList(assessments: Assessment[], rows: PlanRow[]): PlanListItem[] {
           counts: best.has(p.id),
         });
       }
-      plan(a.name, null);
+      plan(a.id, null);
     }
   }
   return list;
@@ -232,6 +286,8 @@ export type PlanStatus = {
   secured: boolean;
   /** How many rows are free to adjust (not pinned, not being moved). */
   freeCount: number;
+  /** A minimum the plan misses: a real grade below it, or a parent's combined plan below it. */
+  belowMinimum: { name: string; minGrade: number | null } | null;
 };
 
 /** How a plan stands against the target. `fixed` = rows that don't adjust (pinned or being moved). */
@@ -246,14 +302,25 @@ export function planStatus(
   const unreachable = projected < target - TOLERANCE;
   const secured =
     projected > target + TOLERANCE && adjustable.every((r) => values[r.key] <= lowest(r) + EPS);
+  const group = input.groups.find((g) => {
+    const v = groupValue(g, values);
+    return v !== null && v < g.minGrade - TOLERANCE;
+  });
+  const belowMinimum = input.failedMinimum
+    ? { name: input.failedMinimum, minGrade: null }
+    : group
+      ? { name: group.name, minGrade: group.minGrade }
+      : null;
   return {
     projected,
-    reachesTarget: projected >= target - TOLERANCE,
-    passes: round1(projected) >= PASS_GRADE,
+    reachesTarget: projected >= target - TOLERANCE && !belowMinimum,
+    // Unrounded, like the result panel: a 4.96 is not a pass.
+    passes: projected >= PASS_GRADE - TOLERANCE && !belowMinimum,
     unreachable,
     short: unreachable ? adjustable.filter((r) => values[r.key] >= 10 - EPS).map((r) => r.key) : [],
     secured,
     freeCount: adjustable.length,
+    belowMinimum,
   };
 }
 
@@ -262,6 +329,12 @@ export function planStatus(
  * `moving` is the row you're dragging (null when nothing is being moved).
  */
 export function planMessage(status: PlanStatus, moving: string | null): string | null {
+  const min = status.belowMinimum;
+  if (min) {
+    return min.minGrade === null
+      ? `Below the minimum on ${min.name}: you won't pass in the ordinary call.`
+      : `Below the minimum on ${min.name}: its parts need ${formatGrade(min.minGrade)} combined. Raise them.`;
+  }
   const others = moving ? "the others" : "every open grade";
   if (status.unreachable) {
     return status.freeCount === 0
@@ -277,20 +350,15 @@ export function planMessage(status: PlanStatus, moving: string | null): string |
 }
 
 /**
- * The combined value of a parent with parts, using real grades and planned values:
- * the weighted average of its counted items (for "best K of N", the best K plus the open slots).
+ * The combined value of a parent with parts, using real grades and planned values: the weighted
+ * average of its parts, or for "best K of N" the average of the best K (open parts at their plan).
  */
 export function combinedValue(assessments: Assessment[], parentId: string, values: PlanValues): number | null {
   const group = groupAssessments(assessments).find((g) => g.assessment.id === parentId);
   if (!group || group.parts.length === 0) return null;
-  const parent = group.assessment;
-  const k = effectiveBestOf(parent, group.parts);
-  const items =
-    k === null
-      ? group.parts.map((p) => ({ weight: p.weight, value: p.grade ?? values[p.name] }))
-      : buildCourseModel([parent, ...group.parts])
-          .items.map((i) => ({ weight: i.weight, value: i.grade ?? values[parent.name] }));
-  const counted = items.filter((i) => i.weight > EPS && i.value !== undefined);
-  const weight = counted.reduce((s, i) => s + i.weight, 0);
-  return weight > EPS ? counted.reduce((s, i) => s + i.weight * (i.value as number), 0) / weight : null;
+  const bestOf = effectiveBestOf(group.assessment, group.parts);
+  return groupValue(
+    { bestOf, parts: group.parts.map((p) => ({ weight: p.weight, grade: p.grade, rowKey: bestOf === null ? p.id : parentId })) },
+    values,
+  );
 }

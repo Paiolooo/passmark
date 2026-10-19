@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { EXAMPLE_COURSE, type Tone, computeResult, formatGrade, formatWeight } from "@/lib/grades";
+import { EXAMPLE_COURSE, type Tone, computeResult, formatGrade, formatResult, formatWeight } from "@/lib/grades";
 import { GradeGauge } from "./ui/GradeGauge";
 import { Slider, StatusPill, WeightBar } from "./ui";
 
@@ -63,7 +63,7 @@ export function LandingDemo() {
             min={final.minGrade}
             color={tone === "good" ? "var(--brand)" : tone === "warn" ? "var(--warn)" : "var(--bad)"}
             onChange={(e) => setGrade(Number(e.target.value))}
-            aria-valuetext={`${formatGrade(grade)} on the ${final.name}. Projected final grade ${formatGrade(projected)}: ${status}.`}
+            aria-valuetext={`${formatGrade(grade)} on the ${final.name}. Projected final grade ${formatResult(projected)}: ${status}.`}
           />
           <output htmlFor={`${id}-final`} className="num w-12 text-right text-2xl font-semibold tracking-tight text-ink">
             {formatGrade(grade)}

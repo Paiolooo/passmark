@@ -6,6 +6,7 @@
 // - Else: no estimate for that semester.
 // An estimate, not an official ranking.
 import { orderSemesters } from "./gpa";
+import { roundUp1 } from "./grades";
 
 const EPS = 1e-9;
 
@@ -188,4 +189,13 @@ export function formatPosition(pos: Position): string {
   if (pos.beyond === "better") return `Top ${formatTop(pos.p)} or better`;
   if (pos.beyond === "worse") return `Below the top ${formatTop(pos.p)}`;
   return `Top ~${formatTop(pos.p)}`;
+}
+
+/**
+ * The "GPA needed for top N%" as shown: rounded up to one decimal so it is never too
+ * optimistic, and "you're there" only when your GPA reaches the number shown.
+ */
+export function neededShown(needed: number, gpa: number | null): { shown: number; there: boolean } {
+  const shown = roundUp1(needed);
+  return { shown, there: gpa !== null && gpa >= shown - EPS };
 }

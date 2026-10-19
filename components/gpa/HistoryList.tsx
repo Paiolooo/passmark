@@ -11,7 +11,17 @@ import {
   toPastCourse,
   toPastSemester,
 } from "@/lib/courses";
-import { type HistorySemester, isPassed, parseCredits, parseGpa, parseGradeOrResult } from "@/lib/gpa";
+import {
+  type HistorySemester,
+  MAX_COURSE_CREDITS,
+  MAX_SEMESTER_CREDITS,
+  gradeEditPatch,
+  gradeText,
+  isPassed,
+  labelTaken,
+  parseCredits,
+  parseGpa,
+} from "@/lib/gpa";
 import { formatGrade, formatWeight } from "@/lib/grades";
 import { dangerFilledButton, errorBox, inputClass, labelClass, primaryButton, secondaryButton } from "../ui";
 import { Menu } from "../ui/Menu";
@@ -38,6 +48,7 @@ export function HistoryList({
   const [editing, setEditing] = useState<{ id: string; mode: "edit" | "delete" } | null>(null);
   const { status, save } = useSaver();
   const labels = history.map((h) => h.label);
+  const summaries = history.flatMap((h) => (h.summary ? [h.summary] : []));
   // A semester you just added (or imported) opens, so you see what was saved.
   const [known, setKnown] = useState(labels);
   const fresh = labels.filter((l) => !known.includes(l));
@@ -126,6 +137,7 @@ export function HistoryList({
                     <SummaryRow
                       row={h.summary}
                       replaced={h.summaryReplaced}
+                      summaries={summaries}
                       datalistId={`${id}-labels`}
                       editing={editing?.id === h.summary.id ? editing.mode : null}
                       setEditing={(mode) => setEditing(mode && h.summary ? { id: h.summary.id, mode } : null)}
@@ -280,7 +292,7 @@ function EditCourse({
     name: c.name,
     semester: c.semester_label,
     credits: formatWeight(c.credits),
-    result: c.grade !== null ? formatGrade(c.grade) : (c.result_label ?? ""),
+    result: gradeText(c.grade, c.result_label),
   });
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -290,18 +302,13 @@ function EditCourse({
     const name = v.name.trim();
     const semester = v.semester.trim();
     const credits = parseCredits(v.credits);
-    const result = parseGradeOrResult(v.result);
+    // Keeps the exact stored grade unless you changed it; Pass → 7,5 starts counting.
+    const result = gradeEditPatch(c, v.result);
     if (!name) return setError("Type the course name.");
     if (!semester) return setError("Type the semester.");
-    if (credits === null) return setError("Credits: use a number above 0, e.g. 6.");
+    if (credits === null) return setError(`Credits: use a number above 0 and up to ${MAX_COURSE_CREDITS}, e.g. 6.`);
     if (!result.ok) return setError(result.error);
-    const patch: Partial<PastCourseRow> = { name, semester_label: semester, credits };
-    // Keep the exact stored grade unless you changed what's shown.
-    if (c.grade === null || v.result.trim() !== formatGrade(c.grade)) {
-      patch.grade = result.grade;
-      patch.result_label = result.result_label;
-      if (result.grade === null) patch.counts_in_gpa = false;
-    }
+    const patch: Partial<PastCourseRow> = { name, semester_label: semester, credits, ...result.patch };
     setPending(true);
     const ok = await onSave(patch);
     setPending(false);
@@ -357,9 +364,12 @@ function EditCourse({
   );
 }
 
+const summaryFields = (row: PastSemesterRow) => ({ label: row.label, gpa: gradeText(row.gpa, null), credits: formatWeight(row.credits) });
+
 function SummaryRow({
   row,
   replaced,
+  summaries,
   datalistId,
   editing,
   setEditing,
@@ -368,6 +378,8 @@ function SummaryRow({
 }: {
   row: PastSemesterRow;
   replaced: boolean;
+  /** Every typed semester GPA, to stop two of them sharing a label. */
+  summaries: PastSemesterRow[];
   datalistId: string;
   editing: "edit" | "delete" | null;
   setEditing: (mode: "edit" | "delete" | null) => void;
@@ -375,18 +387,28 @@ function SummaryRow({
   onDelete: () => Promise<boolean>;
 }) {
   const id = useId();
-  const [v, setV] = useState({ label: row.label, gpa: formatGrade(row.gpa), credits: formatWeight(row.credits) });
+  const [v, setV] = useState(() => summaryFields(row));
   const [error, setError] = useState<string | null>(null);
+  // Opening or cancelling the form starts again from what is saved.
+  const edit = (mode: "edit" | "delete" | null) => {
+    setV(summaryFields(row));
+    setError(null);
+    setEditing(mode);
+  };
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const label = v.label.trim();
     const gpa = parseGpa(v.gpa);
-    const credits = parseCredits(v.credits);
-    if (!v.label.trim()) return setError("Type the semester.");
+    const credits = parseCredits(v.credits, MAX_SEMESTER_CREDITS);
+    if (!label) return setError("Type the semester.");
+    if (labelTaken(label, summaries, row.id))
+      return setError(`You already typed a GPA for ${label}. Use another semester name, or edit that one.`);
     if (gpa === null) return setError("GPA: use a number from 0 to 10, e.g. 7,4.");
-    if (credits === null) return setError("Credits: use a number above 0, e.g. 30.");
-    const patch: Partial<PastSemesterRow> = { label: v.label.trim(), credits };
-    if (v.gpa.trim() !== formatGrade(row.gpa)) patch.gpa = gpa;
+    if (credits === null) return setError(`Credits: use a number above 0 and up to ${MAX_SEMESTER_CREDITS}, e.g. 30.`);
+    setError(null);
+    const patch: Partial<PastSemesterRow> = { label, credits };
+    if (v.gpa.trim() !== gradeText(row.gpa, null)) patch.gpa = gpa;
     if (await onSave(patch)) setEditing(null);
   }
 
@@ -403,8 +425,8 @@ function SummaryRow({
         <Menu
           label={`More for the ${row.label} GPA`}
           items={[
-            { label: "Edit", icon: PenLine, onSelect: () => setEditing("edit") },
-            { label: "Delete", icon: Trash2, danger: true, onSelect: () => setEditing("delete") },
+            { label: "Edit", icon: PenLine, onSelect: () => edit("edit") },
+            { label: "Delete", icon: Trash2, danger: true, onSelect: () => edit("delete") },
           ]}
         />
       </div>
@@ -439,7 +461,7 @@ function SummaryRow({
             <button type="submit" className={primaryButton}>
               Save
             </button>
-            <button type="button" onClick={() => setEditing(null)} className={secondaryButton}>
+            <button type="button" onClick={() => edit(null)} className={secondaryButton}>
               Cancel
             </button>
           </div>

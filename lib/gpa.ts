@@ -1,11 +1,13 @@
 // GPA across the degree: this semester's courses plus past semesters. Pure functions only.
 // Every average is credit-weighted: sum(grade × credits) ÷ sum(credits).
-import { type CourseResult, parseDecimal, roundUp1 } from "./grades";
+import { type CourseResult, formatWeight, parseDecimal, roundUp1 } from "./grades";
 
 const EPS = 1e-9;
 
 /** A course this semester, with its credits (ECTS) and its result from the grade calculator. */
 export type GpaCourse = {
+  /** The course's id in Courses, when known (used for stable list keys). */
+  id?: string;
   name: string;
   credits: number | null;
   target: number;
@@ -13,7 +15,7 @@ export type GpaCourse = {
 };
 
 export type CountedCourse = { name: string; credits: number; grade: number };
-export type ExcludedCourse = { name: string; reason: string };
+export type ExcludedCourse = { id?: string; name: string; reason: string };
 
 export type SemesterGpa = {
   counted: CountedCourse[];
@@ -59,10 +61,11 @@ export function currentSemester(courses: GpaCourse[]): SemesterGpa {
   const counted: CountedCourse[] = [];
   const excluded: ExcludedCourse[] = [];
   for (const c of courses) {
-    if (!hasCredits(c)) excluded.push({ name: c.name, reason: "no credits yet: add them in the course" });
+    const key = c.id === undefined ? {} : { id: c.id };
+    if (!hasCredits(c)) excluded.push({ ...key, name: c.name, reason: "no credits yet: add them in the course" });
     else if (c.result.outcome === "final" && c.result.finalGrade !== null)
       counted.push({ name: c.name, credits: c.credits, grade: c.result.finalGrade });
-    else excluded.push({ name: c.name, reason: reasonNotFinal(c.result) });
+    else excluded.push({ ...key, name: c.name, reason: reasonNotFinal(c.result) });
   }
   return summarise(counted, excluded);
 }
@@ -130,10 +133,11 @@ export type CumulativeTarget =
 
 /**
  * The credit-weighted average needed on this semester's unfinished courses to reach a
- * cumulative GPA, rounded up so it is never too optimistic.
+ * cumulative GPA, rounded up so it is never too optimistic. Courses below a minimum grade are
+ * left out, like in `projectedSemester`: no grade on the rest of them can change their outcome.
  */
 export function neededForCumulative(target: number, past: PastRecord | null, courses: GpaCourse[]): CumulativeTarget {
-  const withCredits = courses.filter(hasCredits);
+  const withCredits = courses.filter(hasCredits).filter((c) => c.result.outcome !== "below-minimum");
   const finished = withCredits.filter((c) => c.result.outcome === "final" && c.result.finalGrade !== null);
   const open = withCredits.filter((c) => !finished.includes(c));
   const openCredits = open.reduce((s, c) => s + c.credits, 0);
@@ -169,10 +173,18 @@ export function semesterLabel(n: number): string {
   return `Year ${Math.ceil(n / SEMESTERS_PER_YEAR)} · Semester ${((n - 1) % SEMESTERS_PER_YEAR) + 1}`;
 }
 
-/** Credits typed by the user ("7,5" works). Returns null when invalid or not above 0. */
-export function parseCredits(raw: string): number | null {
+/** Most ECTS one course can have (also fits courses.credits numeric(4,1) and past_courses numeric(5,1)). */
+export const MAX_COURSE_CREDITS = 60;
+/** Most ECTS a typed semester GPA can cover (past_semesters.credits is numeric(5,1): max 9999.9). */
+export const MAX_SEMESTER_CREDITS = 999;
+
+/**
+ * Credits typed by the user ("7,5" works). Returns null when invalid, not above 0 or above
+ * `max` (one course by default; pass MAX_SEMESTER_CREDITS for a whole semester).
+ */
+export function parseCredits(raw: string, max: number = MAX_COURSE_CREDITS): number | null {
   const n = parseDecimal(raw);
-  return n !== null && n > 0 && n < 100000 ? n : null;
+  return n !== null && n > 0 && n <= max ? n : null;
 }
 
 /** A GPA typed by the user, 0–10 ("7,4" works). */
@@ -193,6 +205,73 @@ export type PastCourse = {
   counts_in_gpa: boolean;
   position: number;
 };
+
+/** Names compared the way a student means them: trimmed, case and spacing ignored. */
+export const nameKey = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+
+/** A grade as text with its exact value (7.25 stays "7.25", 7 is "7"), or the result label. */
+export function gradeText(grade: number | null, result: string | null): string {
+  return grade !== null ? formatWeight(grade) : (result ?? "");
+}
+
+/**
+ * Splits rows to import into new ones and ones already in the history (same course name and
+ * semester, ignoring case and spaces), so importing the same transcript twice adds nothing twice.
+ */
+export function splitDuplicates<R extends { name: string; semester_label: string }>(
+  rows: R[],
+  existing: Pick<PastCourse, "name" | "semester_label">[],
+): { fresh: R[]; skipped: R[] } {
+  const key = (r: { name: string; semester_label: string }) => `${nameKey(r.name)}\u0000${nameKey(r.semester_label)}`;
+  const known = new Set(existing.map(key));
+  const fresh: R[] = [];
+  const skipped: R[] = [];
+  for (const r of rows) (known.has(key(r)) ? skipped : fresh).push(r);
+  return { fresh, skipped };
+}
+
+/**
+ * This semester's courses without the ones already in the history (same name), so a course
+ * both in Courses and in an imported transcript counts once, through the history.
+ */
+export function withoutHistoryCourses<C extends { name: string }>(
+  courses: C[],
+  history: Pick<PastCourse, "name">[],
+): { kept: C[]; inHistory: C[] } {
+  const names = new Set(history.map((c) => nameKey(c.name)));
+  return {
+    kept: courses.filter((c) => !names.has(nameKey(c.name))),
+    inHistory: courses.filter((c) => names.has(nameKey(c.name))),
+  };
+}
+
+/** True when another typed semester GPA (not `selfId`) already uses this label, ignoring case. */
+export function labelTaken(label: string, summaries: { id: string; label: string }[], selfId: string | null = null): boolean {
+  return summaries.some((s) => s.id !== selfId && nameKey(s.label) === nameKey(label));
+}
+
+/**
+ * What to save when a past course's "grade or result" field is edited. The stored grade is
+ * kept unless the text changed. A result without a grade stops counting; a grade that replaces
+ * a result (Pass → 7,5) starts counting.
+ */
+export function gradeEditPatch(
+  old: Pick<PastCourse, "grade" | "result_label">,
+  raw: string,
+):
+  | { ok: true; patch: Partial<Pick<PastCourse, "grade" | "result_label" | "counts_in_gpa">> }
+  | { ok: false; error: string } {
+  const result = parseGradeOrResult(raw);
+  if (!result.ok) return result;
+  if (old.grade !== null && raw.trim() === gradeText(old.grade, null)) return { ok: true, patch: {} };
+  const patch: Partial<Pick<PastCourse, "grade" | "result_label" | "counts_in_gpa">> = {
+    grade: result.grade,
+    result_label: result.result_label,
+  };
+  if (result.grade === null) patch.counts_in_gpa = false;
+  else if (old.grade === null) patch.counts_in_gpa = true;
+  return { ok: true, patch };
+}
 
 export type ResultKind = "pass" | "recognized" | "honors" | "fail" | "other";
 
@@ -329,6 +408,23 @@ export function creditsCompleted(history: HistorySemester[], current: GpaCourse[
     .filter((c) => hasCredits(c) && c.result.outcome === "final" && c.result.badge === "Passed")
     .reduce((s, c) => s + (c.credits as number), 0);
   return pastCourses + typed + now;
+}
+
+/** One point of the GPA chart. `tag` is its short axis label: S1, S2… by semester, "Now" for this semester. */
+export type ChartPoint = { label: string; tag: string; gpa: number; credits: number | null; projected?: boolean };
+
+/**
+ * Chart points: every past semester with a GPA, numbered by its place in the history (so a
+ * semester without a GPA keeps its number), then this semester as "Now" when there is one.
+ */
+export function chartPoints(
+  history: Pick<HistorySemester, "label" | "gpa" | "credits">[],
+  now: { gpa: number; credits: number; projected?: boolean } | null,
+): ChartPoint[] {
+  const past = history.flatMap((h, i) =>
+    h.gpa === null ? [] : [{ label: h.label, tag: `S${i + 1}`, gpa: h.gpa, credits: h.credits }],
+  );
+  return now ? [...past, { label: "This semester", tag: "Now", ...now }] : past;
 }
 
 /** One field for "grade or result": "7,5" → a grade; "Pass" or "Convalidada" → a result label. */

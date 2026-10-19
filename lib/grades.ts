@@ -20,6 +20,8 @@ export type Assessment = {
 
 /** One thing that counts towards the final grade. */
 export type CountedItem = {
+  /** Stable id for planning: the assessment id, or the parent id for open "best K" slots. */
+  key?: string;
   name: string;
   weight: number;
   grade: number | null;
@@ -28,6 +30,8 @@ export type CountedItem = {
 
 /** A minimum grade that must be reached, e.g. "minimum 4.5 in the final exam". */
 export type MinimumRule = {
+  /** The assessment id the rule belongs to (a parent's id for a rule on its combined grade). */
+  key?: string;
   name: string;
   minGrade: number;
   /** The grade it applies to, or null while it isn't (fully) graded. */
@@ -92,6 +96,11 @@ export function round1(x: number): number {
 /** Every grade is shown with exactly 1 decimal: 7 → "7.0". */
 export function formatGrade(x: number): string {
   return round1(x).toFixed(1);
+}
+
+/** A calculated result (final or projected grade), rounded down so it's never too optimistic. */
+export function formatResult(x: number): string {
+  return roundDown1(x).toFixed(1);
 }
 
 /** Weights without useless zeros: 35 → "35", 33.3 → "33.3". */
@@ -189,7 +198,8 @@ export function parentGrade(
       .map((p) => p.grade as number)
       .sort((a, b) => b - a)
       .slice(0, k);
-    return { grade: best.reduce((s, g) => s + g, 0) / best.length, complete: best.length >= k };
+    // Complete only once every part is graded: an open part could still replace a counted one.
+    return { grade: best.reduce((s, g) => s + g, 0) / best.length, complete: grades.length === parts.length };
   }
 
   const weight = grades.reduce((s, p) => s + p.weight, 0);
@@ -219,11 +229,16 @@ export function splitEqually(weight: number, n: number): number[] {
  * Turns assessments into the items that count for the final grade, plus the minimum-grade rules.
  * - Top-level assessment without parts → one item with its own weight.
  * - Parent with parts → each part is an item with its own weight.
- * - Parent with parts and best_of = K → K slots of parent.weight / K: the best K grades
- *   once K parts are graded, otherwise all graded parts plus the missing ungraded slots.
+ * - Parent with parts and best_of = K → K slots of parent.weight / K. The K counted are the best
+ *   of the graded parts and the open parts, taking `assumed` as the grade of every open part
+ *   (a graded part ties ahead of an open one). With the default 10, an open part counts as long
+ *   as it could still beat a graded one.
  * - A minimum on a parent applies to the parent's calculated grade.
  */
-export function buildCourseModel(assessments: Assessment[]): {
+export function buildCourseModel(
+  assessments: Assessment[],
+  assumed = 10,
+): {
   items: CountedItem[];
   minimums: MinimumRule[];
 } {
@@ -232,39 +247,75 @@ export function buildCourseModel(assessments: Assessment[]): {
 
   for (const { assessment: a, parts } of groupAssessments(assessments)) {
     if (parts.length === 0) {
-      items.push({ name: a.name, weight: a.weight, grade: a.grade, minGrade: a.min_grade });
-      if (a.min_grade !== null) minimums.push({ name: a.name, minGrade: a.min_grade, grade: a.grade });
+      items.push({ key: a.id, name: a.name, weight: a.weight, grade: a.grade, minGrade: a.min_grade });
+      if (a.min_grade !== null) minimums.push({ key: a.id, name: a.name, minGrade: a.min_grade, grade: a.grade });
       continue;
     }
 
     const k = effectiveBestOf(a, parts);
     if (k === null) {
       for (const p of parts) {
-        items.push({ name: p.name, weight: p.weight, grade: p.grade, minGrade: p.min_grade });
+        items.push({ key: p.id, name: p.name, weight: p.weight, grade: p.grade, minGrade: p.min_grade });
       }
     } else {
       const slot = a.weight / k;
       const graded = parts
         .filter((p) => p.grade !== null)
         .map((p) => p.grade as number)
-        .sort((x, y) => y - x)
-        .slice(0, k);
-      for (const g of graded) items.push({ name: a.name, weight: slot, grade: g, minGrade: null });
-      for (let i = graded.length; i < k; i++) {
-        items.push({ name: a.name, weight: slot, grade: null, minGrade: null });
-      }
+        .sort((x, y) => y - x);
+      const open = parts.length - graded.length;
+      const ahead = graded.filter((g) => g >= assumed - EPS).slice(0, k);
+      const slots = Math.min(open, k - ahead.length);
+      const behind = graded.slice(ahead.length, ahead.length + (k - ahead.length - slots));
+      for (const g of [...ahead, ...behind]) items.push({ key: a.id, name: a.name, weight: slot, grade: g, minGrade: null });
+      for (let i = 0; i < slots; i++) items.push({ key: a.id, name: a.name, weight: slot, grade: null, minGrade: null });
     }
 
     for (const p of parts) {
-      if (p.min_grade !== null) minimums.push({ name: p.name, minGrade: p.min_grade, grade: p.grade });
+      if (p.min_grade !== null) minimums.push({ key: p.id, name: p.name, minGrade: p.min_grade, grade: p.grade });
     }
     if (a.min_grade !== null) {
       const { grade, complete } = parentGrade(a, parts);
-      minimums.push({ name: a.name, minGrade: a.min_grade, grade: complete ? grade : null });
+      minimums.push({ key: a.id, name: a.name, minGrade: a.min_grade, grade: complete ? grade : null });
     }
   }
 
   return { items, minimums };
+}
+
+/** True when a "best K of N" group has graded and open parts, so which ones count depends on the plan. */
+function hasOpenBestOf(assessments: Assessment[]): boolean {
+  return groupAssessments(assessments).some(
+    ({ assessment, parts }) =>
+      effectiveBestOf(assessment, parts) !== null &&
+      parts.some((p) => p.grade !== null) &&
+      parts.some((p) => p.grade === null),
+  );
+}
+
+/**
+ * The course model used to plan towards `target`: open grades all at the same grade x, the
+ * lowest that reaches the target. Only matters for "best K of N" groups with open parts, where
+ * x decides which graded parts an open part would replace.
+ */
+export function courseModelFor(assessments: Assessment[], target: number) {
+  if (!hasOpenBestOf(assessments)) return buildCourseModel(assessments);
+  const projected = (x: number) => {
+    const { items } = buildCourseModel(assessments, x);
+    const total = items.reduce((s, i) => s + i.weight, 0);
+    const points = items.reduce((s, i) => s + i.weight * (i.grade ?? x), 0);
+    return total > EPS ? points / total : 0;
+  };
+  if (projected(10) < target - EPS) return buildCourseModel(assessments, 10);
+  if (projected(0) >= target - EPS) return buildCourseModel(assessments, 0);
+  let lo = 0;
+  let hi = 10;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (projected(mid) >= target - EPS) hi = mid;
+    else lo = mid;
+  }
+  return buildCourseModel(assessments, hi);
 }
 
 /** The counted items of a course (see buildCourseModel). */
@@ -274,7 +325,7 @@ export function countedItems(assessments: Assessment[]): CountedItem[] {
 
 /** Full result for a course straight from its assessments. */
 export function computeCourse(assessments: Assessment[], target: number): CourseResult {
-  const { items, minimums } = buildCourseModel(assessments);
+  const { items, minimums } = courseModelFor(assessments, target);
   return computeResult(items, target, minimums);
 }
 
@@ -371,15 +422,16 @@ export function computeResult(
   // 3. Everything is graded.
   if (R <= EPS) {
     const finalGrade = points / T;
-    const passed = round1(finalGrade) >= PASS_GRADE;
-    const reached = round1(finalGrade) >= round1(target);
+    // Unrounded, like "needed": a 4.96 is not a pass (it is shown as 4.9, see formatResult).
+    const passed = finalGrade >= PASS_GRADE - EPS;
+    const reached = finalGrade >= target - EPS;
     return {
       ...base,
       outcome: "final",
       finalGrade,
       badge: passed ? "Passed" : "Not passed",
       tone: passed ? "good" : "bad",
-      headline: `Final grade: ${formatGrade(finalGrade)}`,
+      headline: `Final grade: ${formatResult(finalGrade)}`,
       details: [reached ? "Target reached" : "Below target"],
     };
   }

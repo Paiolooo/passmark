@@ -36,7 +36,7 @@ export const shown = (v: number) => formatGrade(roundUp1(v));
 
 /** The plan as shown: values (fitted to the target), pinned rows and how it stands. */
 export function usePlanner(assessments: Assessment[], target: number, plan: PlanState | null) {
-  const input = useMemo(() => planInput(assessments), [assessments]);
+  const input = useMemo(() => planInput(assessments, target), [assessments, target]);
   const basis = basisOf(input, target);
   const single = input.rows.length === 1;
   const current = plan && plan.basis === basis ? plan : null;
