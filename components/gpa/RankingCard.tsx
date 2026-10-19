@@ -154,13 +154,13 @@ export function RankingCard({
           {overallGpa !== null && (
             <li>
               Overall ({formatGrade(overallGpa)}):{" "}
-              <strong className="font-semibold">{formatPosition(positionFor(overallGpa, latestRm))}</strong>
+              <strong className="whitespace-nowrap font-semibold">{formatPosition(positionFor(overallGpa, latestRm))}</strong>
             </li>
           )}
           {projectedGpa !== null && (
             <li>
               If you hit your course targets ({formatGrade(projectedGpa)}):{" "}
-              <strong className="font-semibold">{formatPosition(positionFor(projectedGpa, latestRm))}</strong>
+              <strong className="whitespace-nowrap font-semibold">{formatPosition(positionFor(projectedGpa, latestRm))}</strong>
             </li>
           )}
         </ul>
