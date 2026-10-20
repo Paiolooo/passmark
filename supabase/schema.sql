@@ -14,6 +14,8 @@ create table if not exists public.courses (
   source text not null default 'manual' check (source in ('manual', 'syllabus')),
   created_at timestamptz not null default now()
 );
+-- Syllabus facts (supabase/add-syllabus-info.sql): code, semester, language, attendance, exams, re-sit.
+alter table public.courses add column if not exists syllabus_info jsonb null;
 
 create table if not exists public.assessments (
   id uuid primary key default gen_random_uuid(),

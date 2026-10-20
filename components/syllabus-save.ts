@@ -1,7 +1,15 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
-import { ASSESSMENT_COLUMNS, COURSE_COLUMNS, type Course, toCourse } from "@/lib/courses";
+import {
+  ASSESSMENT_COLUMNS,
+  COURSE_COLUMNS,
+  COURSE_COLUMNS_WITH_INFO,
+  type Course,
+  type SyllabusInfo,
+  missingInfoColumn,
+  toCourse,
+} from "@/lib/courses";
 import { type ConfirmedRow, fillCourseUpdate } from "@/lib/syllabus-import";
 import { friendlyDbError } from "./useSaver";
 
@@ -11,10 +19,22 @@ export type ConfirmedImport = {
   courseName: string;
   sessions: number | null;
   credits: number | null;
+  /** Code, semester, language, attendance, exam sessions, re-sit cap. */
+  info: SyllabusInfo | null;
   rows: ConfirmedRow[];
 };
 
 type Supabase = ReturnType<typeof createClient>;
+type Result<T> = { data: T | null; error: { code?: string; message: string } | null };
+
+/**
+ * Runs a write with the syllabus facts, and again without them if the database doesn't have the
+ * column yet (supabase/add-syllabus-info.sql not run): the import still works, minus those facts.
+ */
+async function withInfo<T>(run: (info: boolean) => PromiseLike<Result<T>>): Promise<Result<T>> {
+  const first = await run(true);
+  return missingInfoColumn(first.error) ? run(false) : first;
+}
 
 /** The assessments (parents, then their parts) for `courseId`. Throws on failure, after undoing what it inserted. */
 async function insertAssessments(supabase: Supabase, courseId: string, rows: ConfirmedRow[]): Promise<void> {
@@ -79,13 +99,21 @@ export async function saveSyllabusImport(
 
   if (id === null) {
     // New course: create it, then its assessments; roll the course back if they fail.
-    const { data: row, error: e } = await supabase
-      .from("courses")
-      .insert({ name: data.courseName, sessions: data.sessions, credits: data.credits, source: "syllabus" })
-      .select("id")
-      .single();
+    const course: Record<string, unknown> = {
+      name: data.courseName,
+      sessions: data.sessions,
+      credits: data.credits,
+      source: "syllabus",
+    };
+    const { data: row, error: e } = await withInfo((info) =>
+      supabase
+        .from("courses")
+        .insert(info ? { ...course, syllabus_info: data.info } : course)
+        .select("id")
+        .single(),
+    );
     if (e) return { course: null, error: failure(e) };
-    id = row.id as string;
+    id = (row as unknown as { id: string }).id;
     try {
       await insertAssessments(supabase, id, data.rows);
     } catch (err) {
@@ -100,28 +128,38 @@ export async function saveSyllabusImport(
       return { course: null, error: failure(err) };
     }
   } else {
-    try {
-      await insertAssessments(supabase, id, data.rows);
-    } catch (err) {
-      return { course: null, error: failure(err) };
+    // Existing course: its assessments and grades are kept. Rows are added only when it has none.
+    const { count } = await supabase.from("assessments").select("id", { count: "exact", head: true }).eq("course_id", id);
+    if (!count) {
+      try {
+        await insertAssessments(supabase, id, data.rows);
+      } catch (err) {
+        return { course: null, error: failure(err) };
+      }
     }
     // Course details last: the assessments are what matter; a failure here is only a warning.
-    const { error: e } = await supabase
-      .from("courses")
-      .update(fillCourseUpdate(data.sessions, data.credits))
-      .eq("id", id);
-    if (e) warning = "Assessments saved, but the course's sessions and credits couldn't be updated.";
+    const update = fillCourseUpdate(data.sessions, data.credits);
+    const { error: e } = await withInfo((info) =>
+      supabase
+        .from("courses")
+        .update(info && data.info ? { ...update, syllabus_info: data.info } : update)
+        .eq("id", id as string)
+        .select("id"),
+    );
+    if (e) warning = "Assessments saved, but the course's details (credits, sessions…) couldn't be updated.";
   }
 
   // Read back exactly what was saved.
-  const { data: saved, error: readError } = await supabase
-    .from("courses")
-    .select(`${COURSE_COLUMNS}, assessments(${ASSESSMENT_COLUMNS})`)
-    .eq("id", id)
-    .single();
+  const { data: saved, error: readError } = await withInfo((info) =>
+    supabase
+      .from("courses")
+      .select(`${info ? COURSE_COLUMNS_WITH_INFO : COURSE_COLUMNS}, assessments(${ASSESSMENT_COLUMNS})`)
+      .eq("id", id as string)
+      .single(),
+  );
   if (readError) {
     console.error("PassMark: saved the import but could not read the course back", readError);
     return { course: null, error: "Saved, but couldn't show the course. Reload the page to see it." };
   }
-  return { course: toCourse(saved as Record<string, unknown>), error: warning };
+  return { course: toCourse(saved as unknown as Record<string, unknown>), error: warning };
 }

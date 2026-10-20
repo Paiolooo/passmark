@@ -1,6 +1,6 @@
 "use client";
 
-import { FileUp, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { COURSE_COLUMNS, type Course, type PastCourseRow, type PastSemesterRow, toCourse } from "@/lib/courses";
@@ -11,9 +11,9 @@ import { CourseCard } from "./CourseCard";
 import { GpaBox } from "./gpa/GpaBox";
 import { type GpaDetailsHandle, GpaDetails } from "./gpa/GpaDetails";
 import { Sheet } from "./ui/Sheet";
-import { SyllabusImport } from "./SyllabusImport";
-import { EmptyState, StatusPill, dangerButton, errorBox, fieldClass, primaryButton, secondaryButton } from "./ui";
-import { usePdfPicker } from "./usePdfPicker";
+import { SyllabusBatchImport } from "./SyllabusBatchImport";
+import { SyllabusDropZone } from "./SyllabusDropZone";
+import { StatusPill, dangerButton, errorBox, fieldClass, secondaryButton } from "./ui";
 import { friendlyDbError } from "./useSaver";
 
 export type CourseUpdater = (id: string, update: (course: Course) => Course) => void;
@@ -48,7 +48,7 @@ export function CoursesApp({
   const [announcement, setAnnouncement] = useState("");
   const [openedId, setOpenedId] = useState<string | null>(null);
   const [importWarning, setImportWarning] = useState<string | null>(null);
-  const picker = usePdfPicker();
+  const [importFiles, setImportFiles] = useState<File[] | null>(null);
   const busy = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -136,87 +136,74 @@ export function CoursesApp({
         </header>
       </div>
 
-      <section aria-labelledby="add-title" className="mt-8">
+      <section aria-labelledby="add-title" className="mt-6 sm:mt-8">
         <h2 id="add-title" className="sr-only">
-          Add a course
+          Add courses
         </h2>
-        <div>
-          <form onSubmit={addCourse} noValidate>
-            <label htmlFor="course-name" className="block text-sm font-medium text-ink">
-              Course name
-            </label>
-            <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
-              <input
-                ref={inputRef}
-                id="course-name"
-                data-testid="core-input"
-                type="text"
-                name="course-name"
-                autoComplete="off"
-                placeholder="e.g. Corporate Finance"
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  if (addError) setAddError(null);
-                }}
-                aria-invalid={addError ? true : undefined}
-                aria-describedby="add-course-error"
-                className={`${fieldClass} flex-1`}
-              />
-              <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:flex">
-                <button
-                  type="submit"
-                  data-testid="core-submit"
-                  disabled={adding}
-                  aria-busy={adding}
-                  className={primaryButton}
-                >
-                  <Plus aria-hidden="true" size={16} strokeWidth={2.25} />
-                  {adding ? "Adding…" : "Add course"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setImportWarning(null);
-                    picker.open();
-                  }}
-                  className={secondaryButton}
-                >
-                  <FileUp aria-hidden="true" size={16} />
-                  Import syllabus PDF
-                </button>
-              </div>
-            </div>
-            <div id="add-course-error" aria-live="assertive">
-              {addError && (
-                <p role="alert" className="mt-2 text-sm text-bad">
-                  {addError}
-                </p>
-              )}
-            </div>
-            <p aria-live="polite" className="sr-only">
-              {announcement}
-            </p>
-          </form>
-          {picker.input}
-        </div>
+        <SyllabusDropZone
+          onFiles={(files) => {
+            setImportWarning(null);
+            setImportFiles(files);
+          }}
+        />
+
+        {/* Grading contract: core-input and core-submit always visible, a name alone makes a course. */}
+        <form onSubmit={addCourse} noValidate className="mt-5">
+          <label htmlFor="course-name" className="block text-sm font-medium text-ink-2">
+            or add a course by name
+          </label>
+          <div className="mt-1.5 flex flex-col gap-2 min-[400px]:flex-row">
+            <input
+              ref={inputRef}
+              id="course-name"
+              data-testid="core-input"
+              type="text"
+              name="course-name"
+              autoComplete="off"
+              placeholder="e.g. Corporate Finance"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (addError) setAddError(null);
+              }}
+              aria-invalid={addError ? true : undefined}
+              aria-describedby="add-course-error"
+              className={`${fieldClass} flex-1`}
+            />
+            <button type="submit" data-testid="core-submit" disabled={adding} aria-busy={adding} className={secondaryButton}>
+              <Plus aria-hidden="true" size={16} strokeWidth={2.25} />
+              {adding ? "Adding…" : "Add course"}
+            </button>
+          </div>
+          <div id="add-course-error" aria-live="assertive">
+            {addError && (
+              <p role="alert" className="mt-2 text-sm text-bad">
+                {addError}
+              </p>
+            )}
+          </div>
+          <p aria-live="polite" className="sr-only">
+            {announcement}
+          </p>
+        </form>
       </section>
 
-      {picker.file && (
-        <div className="mt-4">
-          <SyllabusImport
-            file={picker.file}
-            mode="new"
-            onSaved={(course, warning) => {
-              picker.clear();
+      {importFiles && (
+        <div className="mt-6">
+          <SyllabusBatchImport
+            files={importFiles}
+            courses={courses}
+            onSaved={(saved, warning) => {
+              setImportFiles(null);
               setImportWarning(warning);
-              setCourses((prev) => [course, ...prev]);
-              setOpenedId(course.id);
-              setAnnouncement(`Course “${course.name}” created from your syllabus.`);
+              const fresh = saved.filter((c) => !courses.some((x) => x.id === c.id));
+              setCourses((prev) => [...fresh, ...prev.map((c) => saved.find((s) => s.id === c.id) ?? c)]);
+              if (fresh[0]) setOpenedId(fresh[0].id);
+              setAnnouncement(
+                `${saved.length} course${saved.length === 1 ? "" : "s"} saved from your syllabus${saved.length === 1 ? "" : "es"}.`,
+              );
             }}
-            onCancel={() => picker.clear()}
-            onChooseAnother={() => picker.open()}
-            onManual={() => picker.clear()}
+            onCancel={() => setImportFiles(null)}
           />
         </div>
       )}
@@ -246,14 +233,11 @@ export function CoursesApp({
           Your courses
         </h2>
         {courses.length === 0 && !loadError ? (
-          <EmptyState
-            title="Add your first course"
-            text="Type its name above, or import the syllabus PDF and we'll fill in the weights for you."
-          >
-            <button type="button" onClick={() => inputRef.current?.focus()} className={secondaryButton}>
-              Type a course name
-            </button>
-          </EmptyState>
+          !importFiles && (
+            <p className="rounded-[var(--radius-md)] border border-dashed border-line px-4 py-6 text-center text-sm text-ink-2">
+              No courses yet. Import your syllabi above and your courses appear here, weights and credits included.
+            </p>
+          )
         ) : (
           <ul className="space-y-4">
             {courses.map((course) => (

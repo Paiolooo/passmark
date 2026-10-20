@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowRight, Check, ChevronDown, FileUp, Plus, Trash2 } f
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ASSESSMENT_COLUMNS, type Course, toAssessment } from "@/lib/courses";
+import { maxAbsences } from "@/lib/syllabus";
 import {
   type Assessment,
   type CourseResult,
@@ -24,7 +25,7 @@ import { GradesList } from "./GradesList";
 import { type PlanState, hasPlannableRows, usePlanner } from "./usePlanner";
 import type { NewPart } from "./SplitForm";
 import { StatusBadge } from "./StatusBadge";
-import { SyllabusImport } from "./SyllabusImport";
+import { SyllabusBatchImport } from "./SyllabusBatchImport";
 import {
   Card,
   EmptyState,
@@ -70,6 +71,8 @@ export function CourseCard({
   const [importWarning, setImportWarning] = useState<string | null>(null);
   const { status, save } = useSaver();
   const picker = usePdfPicker();
+  // A stable list: the import reads its files again whenever this array changes.
+  const pickedFiles = useMemo(() => (picker.file ? [picker.file] : []), [picker.file]);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const plannerRef = useRef<HTMLHeadingElement>(null);
   // Plans are what-ifs: kept in memory while the page is open, never saved.
@@ -272,12 +275,12 @@ export function CourseCard({
               {course.name}
             </span>
             <span className="num mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
-              {credits && (
-                <>
-                  <span>{credits}</span>
+              {[credits, course.info?.semesterLabel].filter(Boolean).map((part) => (
+                <span key={part} className="contents">
+                  <span>{part}</span>
                   <span aria-hidden="true" className="text-line-strong">/</span>
-                </>
-              )}
+                </span>
+              ))}
               <span>Target {formatGrade(course.target_grade)}</span>
               {!open && (
                 <span className="ml-1">
@@ -341,34 +344,30 @@ export function CourseCard({
           <div className="space-y-10 border-t border-line px-4 pb-6 pt-5 sm:px-6">
             <SaveIndicator status={status} />
             <ResultPanel result={result} gauge={gauge} target={course.target_grade} weightItems={weightItems} />
+            <CourseFacts course={course} />
             <section aria-labelledby={`${id}-grades`} className="space-y-3">
               <h4 ref={plannerRef} tabIndex={-1} id={`${id}-grades`} className={`${sectionHeading} focus:outline-none`}>
                 Grades
               </h4>
               {picker.input}
               {picker.file ? (
-                <SyllabusImport
-                  file={picker.file}
-                  mode="fill"
-                  courseId={course.id}
+                <SyllabusBatchImport
+                  files={pickedFiles}
+                  courses={[]}
+                  target={course}
                   onSaved={(saved, warning) => {
                     picker.clear();
                     setImportWarning(warning);
-                    onUpdate(course.id, () => saved);
+                    if (saved[0]) onUpdate(course.id, () => saved[0]);
                   }}
                   onCancel={() => picker.clear()}
-                  onChooseAnother={() => picker.open()}
-                  onManual={() => {
-                    picker.clear();
-                    setAdding(true);
-                  }}
                 />
               ) : topLevel.length === 0 ? (
                 !adding && (
                   <EmptyState
                     compact
                     title="No assessments yet"
-                    text="Import them from your syllabus PDF or add them by hand."
+                    text="Import the syllabus to fill in weights and credits, or add them by hand."
                   >
                     <button
                       type="button"
@@ -387,6 +386,23 @@ export function CourseCard({
                   </EmptyState>
                 )
               ) : (
+                <>
+                {course.source === "manual" && (
+                  <p className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-[var(--radius-md)] bg-sunken px-3 py-2 text-sm text-ink-2">
+                    Import the syllabus to fill in weights and credits.
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImportWarning(null);
+                        picker.open();
+                      }}
+                      className={`${buttonClass("ghost")} -my-1 -mr-2 text-sm`}
+                    >
+                      <FileUp aria-hidden="true" size={16} />
+                      Import syllabus PDF
+                    </button>
+                  </p>
+                )}
                 <GradesList
                   idPrefix={id}
                   assessments={course.assessments}
@@ -401,6 +417,7 @@ export function CourseCard({
                     )
                   }
                 />
+                </>
               )}
               {topLevel.length > 0 && (
                 <p
@@ -652,6 +669,35 @@ function ResultPanel({
           </div>
         )}
       </div>
+    </section>
+  );
+}
+
+/** What the syllabus says about the course: credits, semester, absences, exams, re-sit. */
+function CourseFacts({ course }: { course: Course }) {
+  const info = course.info;
+  const absences = maxAbsences(course.sessions, info?.attendancePct ?? null);
+  const facts: [string, string][] = [];
+  if (course.credits !== null) facts.push(["Credits", `${formatWeight(course.credits)} ECTS`]);
+  if (info?.semesterLabel) facts.push(["Semester", info.semesterLabel]);
+  if (absences !== null) facts.push(["Max absences", `${absences} of ${course.sessions} sessions`]);
+  else if (course.sessions !== null) facts.push(["Sessions", String(course.sessions)]);
+  if (info?.examSessions.length)
+    facts.push(["Exams", info.examSessions.map((e) => `${e.name}: session ${e.session}`).join(" · ")]);
+  if (info?.resitMax != null) facts.push(["Re-sit", `Maximum ${formatGrade(info.resitMax)} in the re-sit`]);
+  if (info?.code) facts.push(["Code", info.code]);
+  if (info?.language) facts.push(["Language", info.language]);
+  if (facts.length === 0) return null;
+  return (
+    <section aria-label="Course details">
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm min-[400px]:grid-cols-2 sm:grid-cols-3">
+        {facts.map(([label, value]) => (
+          <div key={label} className="min-w-0">
+            <dt className="text-xs text-ink-3">{label}</dt>
+            <dd className="num wrap-anywhere font-medium text-ink">{value}</dd>
+          </div>
+        ))}
+      </dl>
     </section>
   );
 }

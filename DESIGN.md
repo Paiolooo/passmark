@@ -121,7 +121,17 @@ Icons: `lucide-react` only, `strokeWidth` 1.75–2, `aria-hidden`. No emoji anyw
 - Landing: max width 1120px. Two-column hero from `lg` (copy left, live demo right), stacked
   below. Left-aligned text throughout; nothing centred except the auth card.
 - App: max width 880px, single column. Order: GPA box (slim bar above the title on phones, top
-  right beside it from 640px), page title, the add form, then the course list.
+  right beside it from 640px), page title, the syllabus drop zone ("Import your syllabus PDFs",
+  several at once), then smaller "or add a course by name" (core-input + core-submit, always
+  visible), the import preview when PDFs are chosen, then the course list.
+- Import preview: one card per PDF with every field we read (name, code, credits, sessions,
+  semester, language, attendance, re-sit maximum, exam sessions, assessments), each editable,
+  "not found" (warn tint) on what's missing, "Weights add up to 100%" or a warning. A course
+  already in Courses (same code or name) offers "Update existing course" (default; its
+  assessments and grades are kept) or "Add as a new course". One primary "Add all courses (N)".
+- Open course: "Course details" facts under the result (credits, semester, max absences, exam
+  sessions, re-sit, code, language). Courses added by name show "Import the syllabus to fill in
+  weights and credits".
 - Open course: result panel (gauge, "You need X.X", status) on top, then **one Grades list**:
   hint line, projected grade bar (sticky on phones), one row per assessment (name · weight,
   slider, value, "Add grade"/"Edit", ⋯). Every assessment and every part is its own row in one

@@ -1,8 +1,10 @@
 // Pure logic behind the syllabus import review: turning what the PDF said into editable rows,
 // and turning the reviewed rows back into what gets saved. No React, no Supabase here.
 
-import { formatGrade, formatWeight, parseMinGrade, parseWeight } from "./grades";
-import { type SuggestedPart, type SyllabusRow, countedPartName } from "./syllabus";
+import type { SyllabusInfo } from "./courses";
+import { nameKey, parseCredits } from "./gpa";
+import { formatGrade, formatWeight, parseDecimal, parseMinGrade, parseWeight } from "./grades";
+import { type ExamSession, type SuggestedPart, type Syllabus, type SyllabusRow, countedPartName } from "./syllabus";
 
 export type Suggestion =
   | { kind: "split"; parts: SuggestedPart[] }
@@ -148,4 +150,130 @@ export function fillCourseUpdate(
     ...(sessions !== null ? { sessions } : {}),
     ...(credits !== null ? { credits } : {}),
   };
+}
+
+// ─── Several syllabi at once: one editable draft per course ──────────────
+
+/** One course in the import preview, as the user is editing it (fields are raw text). */
+export type CourseDraft = {
+  key: number;
+  fileName: string;
+  name: string;
+  code: string;
+  credits: string;
+  sessions: string;
+  semesterLabel: string;
+  language: string;
+  attendancePct: string;
+  resitMax: string;
+  examSessions: ExamSession[];
+  rows: DraftRow[];
+  /** False when the PDF had no evaluation table we could read. */
+  pdfHadRows: boolean;
+  /** Create a new course, or update this existing course's id. */
+  target: "new" | string;
+};
+
+const text = (v: number | string | null) => (v === null ? "" : typeof v === "number" ? formatWeight(v) : v);
+
+/** A parsed syllabus as an editable draft. */
+export function draftFromSyllabus(s: Syllabus, fileName: string): CourseDraft {
+  return {
+    key: newDraftKey(),
+    fileName,
+    name: s.course,
+    code: text(s.code),
+    credits: text(s.credits),
+    sessions: text(s.sessions),
+    semesterLabel: text(s.semesterLabel),
+    language: text(s.language),
+    attendancePct: text(s.attendancePct),
+    resitMax: s.resitMax === null ? "" : formatGrade(s.resitMax),
+    examSessions: s.examSessions,
+    rows: s.rows.map(toDraft),
+    pdfHadRows: s.rows.length > 0,
+    target: "new",
+  };
+}
+
+/** Fields the PDF didn't give (shown as "not found" in the preview). */
+export function missingFields(d: CourseDraft): string[] {
+  const missing: [string, boolean][] = [
+    ["name", !d.name.trim()],
+    ["code", !d.code.trim()],
+    ["credits", !d.credits.trim()],
+    ["sessions", !d.sessions.trim()],
+    ["semester", !d.semesterLabel.trim()],
+    ["language", !d.language.trim()],
+    ["assessments", d.rows.length === 0],
+    ["attendance", !d.attendancePct.trim()],
+    ["exam sessions", d.examSessions.length === 0],
+    ["re-sit", !d.resitMax.trim()],
+  ];
+  return missing.filter(([, m]) => m).map(([k]) => k);
+}
+
+/** An existing course that is the same as this draft: same code, or same name (case and spaces ignored). */
+export function findDuplicate<C extends { id: string; name: string; info?: { code: string | null } | null }>(
+  d: Pick<CourseDraft, "name" | "code">,
+  courses: C[],
+): C | null {
+  const code = d.code.trim().toLowerCase();
+  return (
+    (code ? courses.find((c) => c.info?.code?.toLowerCase() === code) : undefined) ??
+    courses.find((c) => nameKey(c.name) === nameKey(d.name) && nameKey(d.name) !== "") ??
+    null
+  );
+}
+
+export type CourseImport = {
+  courseName: string;
+  sessions: number | null;
+  credits: number | null;
+  info: SyllabusInfo;
+  rows: ConfirmedRow[];
+};
+
+/** Validates a draft and turns it into what gets saved, or the first problem (naming the course). */
+export function buildCourseImport(d: CourseDraft): { ok: true; data: CourseImport } | { ok: false; error: string } {
+  const label = d.name.trim() || d.fileName;
+  const name = normalizeCourseName(d.name);
+  if (!name) return { ok: false, error: `${d.fileName}: type a course name.` };
+  const credits = d.credits.trim() === "" ? null : parseCredits(d.credits);
+  if (d.credits.trim() !== "" && credits === null) return { ok: false, error: `${label}: credits must be a number above 0.` };
+  const sessions = d.sessions.trim() === "" ? null : Number(d.sessions.trim());
+  if (sessions !== null && (!Number.isInteger(sessions) || sessions < 1 || sessions > 200))
+    return { ok: false, error: `${label}: sessions must be a whole number.` };
+  const attendance = d.attendancePct.trim() === "" ? null : parseDecimal(d.attendancePct.replace("%", ""));
+  if (d.attendancePct.trim() !== "" && (attendance === null || attendance <= 0 || attendance > 100))
+    return { ok: false, error: `${label}: attendance must be a percentage from 1 to 100.` };
+  const resit = parseMinGrade(d.resitMax);
+  if (!resit.ok) return { ok: false, error: `${label}, re-sit maximum: ${resit.error}` };
+  const rows = buildConfirmedRows(d.rows);
+  if (!rows.ok) return { ok: false, error: `${label}: ${rows.error}` };
+  return {
+    ok: true,
+    data: {
+      courseName: name,
+      credits,
+      sessions,
+      info: {
+        code: d.code.trim() || null,
+        semesterLabel: d.semesterLabel.trim() || null,
+        language: d.language.trim() || null,
+        attendancePct: attendance,
+        examSessions: d.examSessions.filter((e) => e.session.trim() !== ""),
+        resitMax: resit.value,
+      },
+      rows: rows.rows,
+    },
+  };
+}
+
+/** Sum of the draft's weights that parse (for "Weights add up to 100%"). */
+export function draftTotal(rows: DraftRow[]): number {
+  return rows.reduce((sum, r) => {
+    const w = parseWeight(r.weight);
+    return sum + (w.ok && w.value !== null ? w.value : 0);
+  }, 0);
 }

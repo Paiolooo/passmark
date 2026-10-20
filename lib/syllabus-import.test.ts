@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SyllabusRow } from "./syllabus";
+import type { Syllabus, SyllabusRow } from "./syllabus";
 import {
   type DraftRow,
   buildConfirmedRows,
@@ -9,6 +9,10 @@ import {
   scaleParts,
   suggestionLabel,
   toDraft,
+  buildCourseImport,
+  draftFromSyllabus,
+  findDuplicate,
+  missingFields,
 } from "./syllabus-import";
 
 const sum = (xs: { weight: number }[]) => Math.round(xs.reduce((s, x) => s + x.weight, 0) * 100) / 100;
@@ -210,5 +214,91 @@ describe("fillCourseUpdate", () => {
     expect(fillCourseUpdate(30, null)).toEqual({ source: "syllabus", sessions: 30 });
     expect(fillCourseUpdate(null, 6)).toEqual({ source: "syllabus", credits: 6 });
     expect(fillCourseUpdate(30, 6)).toEqual({ source: "syllabus", sessions: 30, credits: 6 });
+  });
+});
+
+// ─── Several syllabi at once ──────────────────────────────────────────────
+
+describe("course drafts (batch import)", () => {
+  const syllabus = (over: Partial<Syllabus> = {}): Syllabus => ({
+    course: "FAKE COURSE",
+    code: "FC-NBF.2.M.L",
+    sessions: 30,
+    credits: 6,
+    academicYear: "26/27",
+    semester: 1,
+    semesterLabel: "26/27 · 1st semester",
+    language: "English",
+    attendancePct: 80,
+    examSessions: [{ name: "Final exam", session: "30" }],
+    resitMax: 8,
+    rows: [
+      { name: "Final Exam", weight: 60, minGrade: 4.5, split: null, count: null, bestOf: null },
+      { name: "Participation", weight: 40, minGrade: null, split: null, count: null, bestOf: null },
+    ],
+    total: 100,
+    ok: true,
+    ...over,
+  });
+
+  it("keeps everything the PDF gave, and saves it", () => {
+    const d = draftFromSyllabus(syllabus(), "fake.pdf");
+    expect(missingFields(d)).toEqual([]);
+    const built = buildCourseImport(d);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    expect(built.data).toMatchObject({
+      courseName: "FAKE COURSE",
+      credits: 6,
+      sessions: 30,
+      info: {
+        code: "FC-NBF.2.M.L",
+        semesterLabel: "26/27 · 1st semester",
+        language: "English",
+        attendancePct: 80,
+        examSessions: [{ name: "Final exam", session: "30" }],
+        resitMax: 8,
+      },
+    });
+    expect(built.data.rows.map((r) => [r.name, r.weight, r.min_grade])).toEqual([
+      ["Final Exam", 60, 4.5],
+      ["Participation", 40, null],
+    ]);
+  });
+
+  it("marks what wasn't found, and saves it as empty", () => {
+    const d = draftFromSyllabus(
+      syllabus({ code: null, credits: null, semesterLabel: null, attendancePct: null, examSessions: [], resitMax: null, rows: [] }),
+      "fake.pdf",
+    );
+    expect(missingFields(d)).toEqual(["code", "credits", "semester", "assessments", "attendance", "exam sessions", "re-sit"]);
+    const built = buildCourseImport(d);
+    expect(built.ok && built.data.info).toEqual({
+      code: null,
+      semesterLabel: null,
+      language: "English",
+      attendancePct: null,
+      examSessions: [],
+      resitMax: null,
+    });
+  });
+
+  it("explains a problem, naming the course", () => {
+    const d = { ...draftFromSyllabus(syllabus(), "fake.pdf"), credits: "lots" };
+    expect(buildCourseImport(d)).toEqual({ ok: false, error: "FAKE COURSE: credits must be a number above 0." });
+    expect(buildCourseImport({ ...d, credits: "6", name: "  " })).toEqual({ ok: false, error: "fake.pdf: type a course name." });
+    expect(buildCourseImport({ ...d, credits: "6", attendancePct: "180" }).ok).toBe(false);
+    expect(buildCourseImport({ ...d, credits: "6,5", attendancePct: "80%" }).ok).toBe(true);
+  });
+
+  it("finds the same course already in Courses: by code first, then by name", () => {
+    const courses = [
+      { id: "a", name: "Fake Course", info: null },
+      { id: "b", name: "Other name", info: { code: "fc-nbf.2.m.l" } },
+    ];
+    expect(findDuplicate({ name: "FAKE COURSE", code: "FC-NBF.2.M.L" }, courses)?.id).toBe("b");
+    expect(findDuplicate({ name: "  fake   course ", code: "" }, courses)?.id).toBe("a");
+    expect(findDuplicate({ name: "New course", code: "XX-1.2.3" }, courses)).toBeNull();
+    expect(findDuplicate({ name: "", code: "" }, [{ id: "c", name: "", info: null }])).toBeNull();
   });
 });
