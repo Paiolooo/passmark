@@ -235,11 +235,11 @@ body {
     opacity: 0;
   }
 }
-dialog.sheet[open] {
+.sheet {
   animation: sheet-up var(--dur) var(--ease-out);
 }
 @media (min-width: 640px) {
-  dialog.sheet[open] {
+  .sheet {
     animation-name: sheet-left;
   }
 }

@@ -103,7 +103,19 @@ test("/gpa redirects to /app with GPA details open", async ({ page, account: { d
   await page.goto("/gpa");
   await expect(page).toHaveURL(/\/app$/);
   await expect(sheet(page)).toBeVisible();
-  await expect(page.getByTestId("logout")).toBeVisible();
+});
+
+test("logout still works while GPA details is open (grading contract)", async ({ browser }) => {
+  // Its own session: logging out must not end the worker's shared one.
+  const { apiUser, login } = await import("./helpers");
+  const { email } = await apiUser("gpalogout");
+  const page = await browser.newPage({ storageState: undefined });
+  await login(page, email);
+  await page.goto("/gpa");
+  await expect(sheet(page)).toBeVisible();
+  await page.getByTestId("logout").click();
+  await page.waitForURL((u) => u.pathname === "/");
+  await page.close();
 });
 
 test("no history yet: the box invites you to import, and courses without credits are named", async ({ page, account: { db } }) => {
