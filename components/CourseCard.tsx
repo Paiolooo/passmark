@@ -75,6 +75,8 @@ export function CourseCard({
   // Plans are what-ifs: kept in memory while the page is open, never saved.
   const [plan, setPlan] = useState<PlanState | null>(null);
   const goToPlanner = useRef(false);
+  const goToCredits = useRef(false);
+  const creditsRef = useRef<HTMLInputElement>(null);
   const canPlan = useMemo(() => hasPlannableRows(course.assessments), [course.assessments]);
 
   // "Plan grades →" opens the course straight at the planner.
@@ -83,6 +85,14 @@ export function CourseCard({
     goToPlanner.current = false;
     plannerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     plannerRef.current?.focus({ preventScroll: true });
+  }, [open]);
+
+  // "Add credits" opens the course at its credits field.
+  useEffect(() => {
+    if (!open || !goToCredits.current) return;
+    goToCredits.current = false;
+    creditsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    creditsRef.current?.focus({ preventScroll: true });
   }, [open]);
 
   // A course just created from a syllabus opens and scrolls into view.
@@ -134,6 +144,10 @@ export function CourseCard({
     return ok;
   }
 
+  // Writes to one assessment go out one after another (a grade changed and then removed must
+  // reach the server in that order), and only the newest change's answer is applied.
+  const writes = useRef(new Map<string, { last: Promise<unknown>; version: number }>());
+
   async function updateAssessment(assessmentId: string, patch: Partial<Assessment>) {
     // Show the change straight away (result and planner update instantly); undo it if saving fails.
     const before = course.assessments.find((a) => a.id === assessmentId);
@@ -143,21 +157,24 @@ export function CourseCard({
         assessments: c.assessments.map((a) => (a.id === assessmentId && row ? row : a)),
       }));
     if (before) patchRow({ ...before, ...patch });
-    const { ok, data } = await save(() =>
-      supabase()
-        .from("assessments")
-        .update(patch)
-        .eq("id", assessmentId)
-        .select(ASSESSMENT_COLUMNS)
-        .single(),
+
+    const queue = writes.current.get(assessmentId) ?? { last: Promise.resolve(), version: 0 };
+    const version = queue.version + 1;
+    const run = queue.last.then(() =>
+      save(() =>
+        supabase()
+          .from("assessments")
+          .update(patch)
+          .eq("id", assessmentId)
+          .select(ASSESSMENT_COLUMNS)
+          .single(),
+      ),
     );
-    if (ok && data) {
-      const row = toAssessment(data as Record<string, unknown>);
-      onUpdate(course.id, (c) => ({
-        ...c,
-        assessments: c.assessments.map((a) => (a.id === assessmentId ? row : a)),
-      }));
-    } else if (!ok) patchRow(before);
+    writes.current.set(assessmentId, { last: run, version });
+    const { ok, data } = await run;
+    if (writes.current.get(assessmentId)?.version !== version) return ok; // a newer change follows
+    if (ok && data) patchRow(toAssessment(data as Record<string, unknown>));
+    else if (!ok) patchRow(before);
     return ok;
   }
 
@@ -280,24 +297,42 @@ export function CourseCard({
           </span>
         </button>
       </h3>
-      {!open && (weightItems.length > 0 || canPlan) && (
+      {!open && (weightItems.length > 0 || canPlan || course.credits === null) && (
         <div className="-mt-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 pb-3 sm:px-6 sm:pb-4">
-          <div className="min-w-[10rem] max-w-md flex-1">
-            <WeightBar items={weightItems} size="sm" />
-          </div>
-          {canPlan && (
-            <button
-              type="button"
-              onClick={() => {
-                goToPlanner.current = true;
-                setOpen(true);
-              }}
-              className={`${buttonClass("ghost")} -mr-2`}
-            >
-              Plan grades <ArrowRight aria-hidden="true" size={16} />
-              <span className="sr-only"> for {course.name}</span>
-            </button>
+          {weightItems.length > 0 && (
+            <div className="min-w-[10rem] max-w-md flex-1">
+              <WeightBar items={weightItems} size="sm" />
+            </div>
           )}
+          <div className="-mr-2 ml-auto flex flex-wrap items-center gap-x-1">
+            {course.credits === null && (
+              <button
+                type="button"
+                onClick={() => {
+                  goToCredits.current = true;
+                  setOpen(true);
+                }}
+                className={buttonClass("ghost")}
+              >
+                <Plus aria-hidden="true" size={16} />
+                Add credits
+                <span className="sr-only"> for {course.name} (not counted in your GPA without them)</span>
+              </button>
+            )}
+            {canPlan && (
+              <button
+                type="button"
+                onClick={() => {
+                  goToPlanner.current = true;
+                  setOpen(true);
+                }}
+                className={buttonClass("ghost")}
+              >
+                Plan grades <ArrowRight aria-hidden="true" size={16} />
+                <span className="sr-only"> for {course.name}</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -409,7 +444,7 @@ export function CourseCard({
 
             <div className="grid gap-8 sm:grid-cols-[1fr_auto]">
               <TargetPicker target={course.target_grade} onSave={setTarget} />
-              <CreditsField key={course.credits ?? "none"} credits={course.credits} onSave={setCredits} />
+              <CreditsField key={course.credits ?? "none"} inputRef={creditsRef} credits={course.credits} onSave={setCredits} />
             </div>
 
             <div className="border-t border-line pt-5">
@@ -504,9 +539,11 @@ const TONE_TEXT: Record<CourseResult["tone"], string> = {
 
 /** Credits (ECTS) for the GPA: optional; saved when you leave the field. */
 function CreditsField({
+  inputRef,
   credits,
   onSave,
 }: {
+  inputRef: React.Ref<HTMLInputElement>;
   credits: number | null;
   onSave: (value: number | null) => Promise<boolean>;
 }) {
@@ -530,9 +567,10 @@ function CreditsField({
         Credits (ECTS)
       </label>
       <p id={`${id}-credits-hint`} className="mt-1 text-sm text-ink-2">
-        Used for your GPA. Optional.
+        {credits === null ? "Needed for your GPA: without credits this course isn't counted." : "Used for your GPA."}
       </p>
       <input
+        ref={inputRef}
         id={`${id}-credits`}
         type="text"
         inputMode="decimal"

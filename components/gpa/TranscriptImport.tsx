@@ -18,7 +18,7 @@ import { checkPdfFile, readPdfTextItems } from "@/lib/pdf-text";
 import { type CurrentCourse, parseTranscript } from "@/lib/transcript";
 import { Skeleton, buttonClass, cardClass, errorBox, inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "../ui";
 import { friendlyDbError } from "../useSaver";
-import { PRIVACY_NOTE } from "./GpaApp";
+import { PRIVACY_NOTE } from "./GpaDetails";
 import { Switch } from "./HistoryList";
 
 /** `group`: a stable id per semester section, so renaming a semester keeps its place and focus. */

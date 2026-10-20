@@ -222,6 +222,28 @@ body {
   }
 }
 
+/* Sheet (GPA details): slides up on phones, in from the right on desktop. */
+@keyframes sheet-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+@keyframes sheet-left {
+  from {
+    transform: translateX(32px);
+    opacity: 0;
+  }
+}
+dialog.sheet[open] {
+  animation: sheet-up var(--dur) var(--ease-out);
+}
+@media (min-width: 640px) {
+  dialog.sheet[open] {
+    animation-name: sheet-left;
+  }
+}
+
 /* Toast. */
 @keyframes toast-in {
   from {

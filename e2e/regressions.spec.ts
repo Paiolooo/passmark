@@ -160,3 +160,30 @@ test("leaving the page while a grade is still saving asks first", async ({ page,
   await (await dialog).dismiss();
 });
 
+
+test("changing a grade and then removing it quickly: the removal wins", async ({ page, account }) => {
+  const name = uniqueName("Race");
+  await seedCourse(account.db, name, [{ name: "Final", weight: 100, grade: 6 }]);
+  await page.goto("/app");
+  const card = await openCourse(page, name);
+  // The first save is slow, so the second one would overtake it without ordering.
+  let first = true;
+  await page.route("**/rest/v1/assessments**", async (route) => {
+    if (route.request().method() === "PATCH" && first) {
+      first = false;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    await route.continue().catch(() => {});
+  });
+  await card.getByRole("button", { name: "Edit grade for Final" }).click();
+  await card.getByRole("textbox", { name: "Grade for Final" }).fill("4,2");
+  await card.getByRole("textbox", { name: "Grade for Final" }).press("Enter");
+  await card.getByRole("button", { name: "Edit grade for Final" }).click();
+  await card.getByRole("button", { name: "Remove grade" }).click();
+  await expect(card.getByRole("button", { name: "Add grade for Final" })).toBeVisible();
+  await expect(page.getByText("Saving…")).toHaveCount(0, { timeout: 15_000 });
+  await expect(card.getByRole("button", { name: "Add grade for Final" })).toBeVisible();
+  await page.unroute("**/rest/v1/assessments**");
+  await page.reload();
+  await expect((await openCourse(page, name)).getByRole("button", { name: "Add grade for Final" })).toBeVisible();
+});

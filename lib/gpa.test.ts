@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { type CountedItem, computeResult } from "./grades";
+import { type Assessment, type CountedItem, computeCourse, computeResult } from "./grades";
 import {
   MAX_COURSE_CREDITS,
   MAX_SEMESTER_CREDITS,
   chartPoints,
+  formatGpa,
+  gpaSummary,
+  liveSemester,
   gradeEditPatch,
   gradeText,
   labelTaken,
@@ -524,3 +527,90 @@ describe("editing a past course's grade", () => {
     expect(gradeEditPatch({ grade: 7, result_label: null }, "11").ok).toBe(false);
   });
 });
+
+// ─── GPA box: official, live and this semester ───────────────────────────
+
+describe("GPA box (gpaSummary)", () => {
+  let n = 0;
+  const a = (over: Partial<Assessment>): Assessment => ({
+    id: `a${++n}`,
+    course_id: "c",
+    parent_id: null,
+    name: "A",
+    weight: 50,
+    grade: null,
+    min_grade: null,
+    best_of: null,
+    position: n,
+    created_at: "2026-01-01T00:00:00Z",
+    ...over,
+  });
+  /** A course in Courses, from its assessments, like the app computes it. */
+  const live = (name: string, credits: number | null, grades: (number | null)[], target = 7): GpaCourse => {
+    const rows = grades.map((grade, i) => a({ name: `${name} ${i + 1}`, weight: 100 / grades.length, grade }));
+    return { name, credits, target, result: computeCourse(rows, target) };
+  };
+  const past = (name: string, credits: number, grade: number | null, result_label: string | null = null): PastCourse => ({
+    name,
+    semester_label: "24/25 · 1st semester",
+    credits,
+    grade,
+    result_label,
+    counts_in_gpa: grade !== null,
+    position: n++,
+  });
+  // Official: (6×9 + 4×9.5 + 6×9) / 16 = 9.125
+  const history = [past("Microeconomics", 6, 9), past("Ethics", 4, 9.5), past("Statistics", 6, 9)];
+
+  it("weights every GPA by credits", () => {
+    const s = gpaSummary([live("Finance", 6, [8, 8]), live("Law", 3, [5, 5])], history, []);
+    expect(s.official).toBeCloseTo(146 / 16, 9);
+    // This semester: (6×8 + 3×5) / 9 = 7
+    expect(s.semester).toBeCloseTo(7, 9);
+    // Live: (146 + 63) / 25
+    expect(s.live).toBeCloseTo(209 / 25, 9);
+    // Two decimals cut off, like IE's transcript: 9.125 → 9.12.
+    expect(formatGpa(s.official!)).toBe("9.12");
+    expect(formatGpa(9)).toBe("9.00");
+  });
+
+  it("live equals official while current courses have no grades", () => {
+    const s = gpaSummary([live("Finance", 6, [null, null]), live("Law", 3, [null])], history, []);
+    expect(s.semester).toBeNull();
+    expect(s.live).toBe(s.official);
+  });
+
+  it("changes as soon as a grade is added (average so far, not the final grade)", () => {
+    const before = gpaSummary([live("Finance", 6, [null, null])], history, []);
+    const after = gpaSummary([live("Finance", 6, [7, null])], history, []);
+    expect(before.live).toBe(before.official);
+    // Finance counts at its average so far, 7: (146 + 42) / 22
+    expect(after.semester).toBeCloseTo(7, 9);
+    expect(after.live).toBeCloseTo(188 / 22, 9);
+    expect(after.official).toBe(before.official);
+  });
+
+  it("leaves out courses without credits and says so", () => {
+    const s = gpaSummary([live("Finance", 6, [8, 8]), live("Club", null, [10, 10])], history, []);
+    expect(s.semester).toBeCloseTo(8, 9);
+    expect(s.noCredits.map((c) => c.name)).toEqual(["Club"]);
+    expect(liveSemester([live("Club", null, [10])]).gpa).toBeNull();
+  });
+
+  it("non-numeric results (Pass, Recognized) never count; a course in both places counts once", () => {
+    const withPass = [...history, past("Internship", 6, null, "Pass"), past("Language", 3, null, "Recognized")];
+    const s = gpaSummary([live("Microeconomics", 6, [2, 2])], withPass, []);
+    expect(s.official).toBeCloseTo(146 / 16, 9);
+    // Microeconomics is already in the history: its low grade here doesn't count twice.
+    expect(s.live).toBeCloseTo(146 / 16, 9);
+  });
+
+  it("typed semester GPAs count like a transcript; nothing at all gives no GPA", () => {
+    const s = gpaSummary([], [], [{ label: "23/24 · 2nd semester", gpa: 8.5, credits: 30 }]);
+    expect(s.official).toBeCloseTo(8.5, 9);
+    expect(s.hasHistory).toBe(true);
+    const empty = gpaSummary([live("Finance", 6, [null])], [], []);
+    expect(empty).toMatchObject({ official: null, live: null, semester: null, hasHistory: false });
+  });
+});
+

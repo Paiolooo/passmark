@@ -1,11 +1,16 @@
 "use client";
 
 import { FileUp, Plus } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { COURSE_COLUMNS, type Course, toCourse } from "@/lib/courses";
+import { COURSE_COLUMNS, type Course, type PastCourseRow, type PastSemesterRow, toCourse } from "@/lib/courses";
+import { type GpaCourse, gpaSummary } from "@/lib/gpa";
 import { type Tone, computeCourse, summarize } from "@/lib/grades";
+import type { Reference } from "@/lib/ranking";
 import { CourseCard } from "./CourseCard";
+import { GpaBox } from "./gpa/GpaBox";
+import { type GpaDetailsHandle, GpaDetails } from "./gpa/GpaDetails";
+import { Sheet } from "./ui/Sheet";
 import { SyllabusImport } from "./SyllabusImport";
 import { EmptyState, StatusPill, dangerButton, errorBox, fieldClass, primaryButton, secondaryButton } from "./ui";
 import { usePdfPicker } from "./usePdfPicker";
@@ -16,11 +21,27 @@ export type CourseUpdater = (id: string, update: (course: Course) => Course) => 
 export function CoursesApp({
   initialCourses,
   loadError,
+  historyAvailable,
+  initialSemesters,
+  initialPastCourses,
+  references,
+  openGpa = false,
 }: {
   initialCourses: Course[];
   loadError: string | null;
+  historyAvailable: boolean;
+  initialSemesters: PastSemesterRow[];
+  initialPastCourses: PastCourseRow[];
+  references: Reference[];
+  /** Open "GPA details" straight away (the old /gpa page redirects here). */
+  openGpa?: boolean;
 }) {
   const [courses, setCourses] = useState<Course[]>(initialCourses);
+  // GPA history lives here with the courses, so the GPA box follows every grade at once.
+  const [semesters, setSemesters] = useState(initialSemesters);
+  const [pastCourses, setPastCourses] = useState(initialPastCourses);
+  const [gpaOpen, setGpaOpen] = useState(openGpa);
+  const details = useRef<GpaDetailsHandle>(null);
   const [name, setName] = useState("");
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
@@ -31,11 +52,24 @@ export function CoursesApp({
   const busy = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const summary = useMemo(
+  const gpaCourses: GpaCourse[] = useMemo(
     () =>
-      summarize(courses.map((c) => computeCourse(c.assessments, c.target_grade))),
+      courses.map((c) => ({
+        id: c.id,
+        name: c.name,
+        credits: c.credits,
+        target: c.target_grade,
+        result: computeCourse(c.assessments, c.target_grade),
+      })),
     [courses],
   );
+  const summary = useMemo(() => summarize(gpaCourses.map((c) => c.result)), [gpaCourses]);
+  const gpa = useMemo(() => gpaSummary(gpaCourses, pastCourses, semesters), [gpaCourses, pastCourses, semesters]);
+
+  // Coming from /gpa: the panel is open; tidy the address so a reload doesn't reopen it.
+  useEffect(() => {
+    if (openGpa) window.history.replaceState(null, "", "/app");
+  }, [openGpa]);
 
   async function addCourse(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -83,11 +117,24 @@ export function CoursesApp({
   const hasCourses = courses.length > 0;
 
   return (
-    <main className="mx-auto w-full max-w-[880px] flex-1 px-4 pb-24 pt-8 sm:px-6 sm:pt-12">
-      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-        <h1 className="type-page text-ink">My courses</h1>
-        {hasCourses && <SummaryPills summary={summary} />}
-      </header>
+    <main className="mx-auto w-full max-w-[880px] flex-1 px-4 pb-24 pt-4 sm:px-6 sm:pt-12">
+      {/* Phones: the GPA is a slim bar above the title. Desktop: a box at the top right. */}
+      <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-6">
+        <div className="sm:col-start-2 sm:row-start-1">
+          <GpaBox
+            summary={gpa}
+            onOpen={() => setGpaOpen(true)}
+            onImport={() => {
+              setGpaOpen(true);
+              details.current?.importTranscript();
+            }}
+          />
+        </div>
+        <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 sm:col-start-1 sm:row-start-1">
+          <h1 className="type-page text-ink">My courses</h1>
+          {hasCourses && <SummaryPills summary={summary} />}
+        </header>
+      </div>
 
       <section aria-labelledby="add-title" className="mt-8">
         <h2 id="add-title" className="sr-only">
@@ -222,6 +269,18 @@ export function CoursesApp({
         )}
       </section>
 
+      <Sheet open={gpaOpen} onClose={() => setGpaOpen(false)} title="GPA details">
+        <GpaDetails
+          ref={details}
+          courses={courses}
+          gpaCourses={gpaCourses}
+          summary={gpa}
+          onCoursesAdded={(added) => setCourses((prev) => [...added, ...prev])}
+          historyAvailable={historyAvailable}
+          history={{ semesters, setSemesters, pastCourses, setPastCourses }}
+          references={references}
+        />
+      </Sheet>
     </main>
   );
 }

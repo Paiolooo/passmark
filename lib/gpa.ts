@@ -411,7 +411,15 @@ export function creditsCompleted(history: HistorySemester[], current: GpaCourse[
 }
 
 /** One point of the GPA chart. `tag` is its short axis label: S1, S2… by semester, "Now" for this semester. */
-export type ChartPoint = { label: string; tag: string; gpa: number; credits: number | null; projected?: boolean };
+export type ChartPoint = {
+  label: string;
+  tag: string;
+  gpa: number;
+  credits: number | null;
+  /** Not final yet (drawn dashed); `note` says why, e.g. "so far". */
+  projected?: boolean;
+  note?: string;
+};
 
 /**
  * Chart points: every past semester with a GPA, numbered by its place in the history (so a
@@ -419,7 +427,7 @@ export type ChartPoint = { label: string; tag: string; gpa: number; credits: num
  */
 export function chartPoints(
   history: Pick<HistorySemester, "label" | "gpa" | "credits">[],
-  now: { gpa: number; credits: number; projected?: boolean } | null,
+  now: { gpa: number; credits: number; projected?: boolean; note?: string } | null,
 ): ChartPoint[] {
   const past = history.flatMap((h, i) =>
     h.gpa === null ? [] : [{ label: h.label, tag: `S${i + 1}`, gpa: h.gpa, credits: h.credits }],
@@ -438,3 +446,55 @@ export function parseGradeOrResult(raw: string):
   if (/^\d/.test(t)) return { ok: false, error: "Use a number from 0 to 10, e.g. 7,5." };
   return { ok: true, grade: null, result_label: t.slice(0, 60) };
 }
+
+// ─── The GPA box on /app: official, live and this semester ───────────────
+
+/** This semester so far: each course with credits at its average so far (its final grade once done). */
+export function liveSemester(courses: GpaCourse[]): SemesterGpa {
+  const counted: CountedCourse[] = [];
+  const excluded: ExcludedCourse[] = [];
+  for (const c of courses) {
+    const key = c.id === undefined ? {} : { id: c.id };
+    const grade = c.result.outcome === "final" ? c.result.finalGrade : c.result.averageSoFar;
+    if (!hasCredits(c)) excluded.push({ ...key, name: c.name, reason: "no credits" });
+    else if (grade === null) excluded.push({ ...key, name: c.name, reason: "no grades yet" });
+    else counted.push({ name: c.name, credits: c.credits, grade });
+  }
+  return summarise(counted, excluded);
+}
+
+export type GpaSummary = {
+  /** From completed courses only (history / transcript), exactly as recorded. */
+  official: number | null;
+  /** Official plus this semester's courses at their average so far, credit-weighted. */
+  live: number | null;
+  /** This semester's courses at their average so far. */
+  semester: number | null;
+  /** Courses in Courses left out because they have no credits. */
+  noCredits: ExcludedCourse[];
+  /** True when there is any past grade (history, transcript or typed semester GPA). */
+  hasHistory: boolean;
+};
+
+/**
+ * Everything the GPA box shows. A course both in Courses and in the history counts once,
+ * through the history (see withoutHistoryCourses).
+ */
+export function gpaSummary(courses: GpaCourse[], pastCourses: PastCourse[], semesters: PastSemester[]): GpaSummary {
+  const history = groupHistory(pastCourses, semesters);
+  const record = historyRecord(history);
+  const { kept } = withoutHistoryCourses(courses, pastCourses);
+  const semester = liveSemester(kept);
+  const credits = (record?.credits ?? 0) + semester.credits;
+  const points = (record?.points ?? 0) + semester.points;
+  return {
+    official: record ? record.points / record.credits : null,
+    live: credits > EPS ? points / credits : null,
+    semester: semester.gpa,
+    noCredits: semester.excluded.filter((e) => e.reason === "no credits"),
+    hasHistory: pastCourses.length > 0 || semesters.length > 0,
+  };
+}
+
+/** A GPA as shown in the box: two decimals, cut off like IE's transcript (9.1458 → "9.14"). */
+export const formatGpa = (gpa: number) => (Math.floor(gpa * 100 + EPS) / 100).toFixed(2);

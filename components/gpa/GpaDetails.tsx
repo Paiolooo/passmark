@@ -1,26 +1,29 @@
 "use client";
 
 import { FileUp, PenLine } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { useId, useImperativeHandle, useMemo, useState } from "react";
 import type { Course, PastCourseRow, PastSemesterRow } from "@/lib/courses";
 import type { Reference } from "@/lib/ranking";
 import {
   type GpaCourse,
+  type GpaSummary,
   chartPoints,
   creditsCompleted,
   cumulativeGpa,
-  currentSemester,
+  formatGpa,
   groupHistory,
   historyRecord,
+  liveSemester,
   neededForCumulative,
   parseGpa,
   projectedSemester,
   withoutHistoryCourses,
 } from "@/lib/gpa";
-import { computeCourse, formatGrade, formatWeight } from "@/lib/grades";
+import { formatGrade, formatWeight } from "@/lib/grades";
 import { GpaChart } from "../GpaChart";
 import { Card, EmptyState, inputClass, primaryButton, secondaryButton } from "../ui";
 import { AnimatedNumber } from "../ui/AnimatedNumber";
+import { LiveInfo } from "./GpaBox";
 import { usePdfPicker } from "../usePdfPicker";
 import { HistoryList } from "./HistoryList";
 import { ManualAdd } from "./ManualAdd";
@@ -31,68 +34,79 @@ import { TranscriptImport } from "./TranscriptImport";
 export const PRIVACY_NOTE =
   "Your transcript is read on your device and never uploaded. Only the courses you confirm are saved to your private account.";
 
-/** The GPA page: overall GPA, this semester, credits, a chart, a target and your history. */
-export function GpaApp({
-  courses: initialCourses,
-  coursesError,
+export type GpaDetailsHandle = { importTranscript: () => void };
+
+export type HistoryState = {
+  semesters: PastSemesterRow[];
+  setSemesters: React.Dispatch<React.SetStateAction<PastSemesterRow[]>>;
+  pastCourses: PastCourseRow[];
+  setPastCourses: React.Dispatch<React.SetStateAction<PastCourseRow[]>>;
+};
+
+/**
+ * "GPA details" (in a sheet on /app): overall, live and this semester's GPA, a chart, a target,
+ * a ranking estimate and your history. Courses and history live in the courses page, so every
+ * grade you add there shows here at once.
+ */
+export function GpaDetails({
+  ref,
+  courses,
+  gpaCourses,
+  summary,
+  onCoursesAdded,
   historyAvailable,
-  initialSemesters,
-  initialPastCourses,
+  history: { semesters, setSemesters, pastCourses, setPastCourses },
   references,
 }: {
+  ref?: React.Ref<GpaDetailsHandle>;
   courses: Course[];
-  coursesError: string | null;
+  gpaCourses: GpaCourse[];
+  summary: GpaSummary;
+  onCoursesAdded: (added: Course[]) => void;
   historyAvailable: boolean;
-  initialSemesters: PastSemesterRow[];
-  initialPastCourses: PastCourseRow[];
+  history: HistoryState;
   references: Reference[];
 }) {
   const id = useId();
-  const [courses, setCourses] = useState(initialCourses);
-  const [semesters, setSemesters] = useState(initialSemesters);
-  const [pastCourses, setPastCourses] = useState(initialPastCourses);
   const [adding, setAdding] = useState(false);
   const [targetText, setTargetText] = useState("");
   const [importNote, setImportNote] = useState<string | null>(null);
   const picker = usePdfPicker();
 
-  const gpaCourses: GpaCourse[] = useMemo(
-    () =>
-      courses.map((c) => ({
-        id: c.id,
-        name: c.name,
-        credits: c.credits,
-        target: c.target_grade,
-        result: computeCourse(c.assessments, c.target_grade),
-      })),
-    [courses],
-  );
+  useImperativeHandle(ref, () => ({
+    importTranscript: () => {
+      setImportNote(null);
+      setAdding(false);
+      picker.open();
+    },
+  }));
+
   const history = useMemo(() => groupHistory(pastCourses, semesters), [pastCourses, semesters]);
   const record = historyRecord(history);
-  const current = currentSemester(gpaCourses);
-  const projected = projectedSemester(gpaCourses);
   // A course both in Courses and in your history counts once, through the history.
   const { kept, inHistory } = withoutHistoryCourses(gpaCourses, pastCourses);
-  const overall = cumulativeGpa(record, currentSemester(kept), kept);
-  const keptProjected = projectedSemester(kept);
-  const ifTargets = cumulativeGpa(record, keptProjected, kept);
+  const semester = liveSemester(kept);
+  const projected = projectedSemester(kept);
+  const ifTargets = cumulativeGpa(record, projected, kept);
   const credits = creditsCompleted(history, kept);
   const targetValue = parseGpa(targetText);
   const target = targetValue === null ? null : neededForCumulative(targetValue, record, kept);
 
+  // "Now": this semester so far (live); only without any grade yet, what your targets add up to.
   const points = chartPoints(
     history,
-    current.gpa !== null && current.excluded.length === 0
-      ? { gpa: current.gpa, credits: current.credits }
+    semester.gpa !== null
+      ? { gpa: semester.gpa, credits: semester.credits, projected: true, note: "so far" }
       : projected.gpa !== null
-        ? { gpa: projected.gpa, credits: projected.credits, projected: true }
+        ? { gpa: projected.gpa, credits: projected.credits, projected: true, note: "your targets" }
         : null,
   );
 
   const hasHistory = pastCourses.length > 0 || semesters.length > 0;
   const importing = picker.file !== null;
-  const tile = "flex flex-col px-3 first:pl-0 last:pr-0 sm:px-6";
-  const big = "text-[1.75rem] font-semibold leading-none tracking-[-0.03em] text-ink sm:text-[2.5rem]";
+  const big = "text-[1.75rem] font-semibold leading-none tracking-[-0.03em] text-ink sm:text-[2rem]";
+  const value = (gpa: number | null) =>
+    gpa !== null ? <AnimatedNumber value={gpa} format={formatGpa} className={big} /> : <span className={`${big} text-ink-3`}>–</span>;
 
   const historyButtons = (
     <>
@@ -115,43 +129,42 @@ export function GpaApp({
   );
 
   return (
-    <main className="mx-auto w-full max-w-[880px] flex-1 px-4 pb-24 pt-8 sm:px-6 sm:pt-12">
-      <h1 className="type-page text-ink">GPA</h1>
-
-      <Card as="section" aria-label="Your GPA" className="mt-6 p-5 sm:p-7">
-        <dl className="grid grid-cols-3 divide-x divide-line">
-          <div className={tile}>
+    <div>
+      <Card as="section" aria-label="Your GPA" className="p-5">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-5">
+          <div>
             <dt className="text-sm text-ink-2">Overall GPA</dt>
-            <dd className="mt-2">
-              {overall.gpa !== null ? <AnimatedNumber value={overall.gpa} className={big} /> : <span className={`${big} text-ink-3`}>–</span>}
-            </dd>
-            <dd className="mt-2 text-xs text-ink-3">
-              {overall.gpa === null ? "Add your history or finish a course." : "Credit-weighted, 0–10"}
-            </dd>
+            <dd className="mt-1.5">{value(summary.official)}</dd>
+            <dd className="mt-1 text-xs text-ink-3">{summary.official === null ? "Add your past grades." : "Official courses"}</dd>
           </div>
-          <div className={tile}>
+          <div>
+            <dt className="flex items-center gap-1 text-sm text-ink-2">
+              Live <LiveInfo />
+            </dt>
+            <dd className="mt-1.5">{value(summary.live)}</dd>
+            <dd className="mt-1 text-xs text-ink-3">With this semester so far</dd>
+          </div>
+          <div>
             <dt className="text-sm text-ink-2">This semester</dt>
-            <dd className="mt-2">
-              {current.gpa !== null ? <AnimatedNumber value={current.gpa} className={big} /> : <span className={`${big} text-ink-3`}>–</span>}
-            </dd>
-            <dd className="mt-2 text-xs text-ink-3">
-              {current.gpa === null
-                ? "No finished course with credits yet."
-                : `${current.counted.length} finished course${current.counted.length === 1 ? "" : "s"} in Courses`}
+            <dd className="mt-1.5">{value(summary.semester)}</dd>
+            <dd className="mt-1 text-xs text-ink-3">
+              {semester.gpa === null
+                ? "No grades with credits yet."
+                : `${semester.counted.length} course${semester.counted.length === 1 ? "" : "s"}, grades so far`}
             </dd>
           </div>
-          <div className={tile}>
+          <div>
             <dt className="text-sm text-ink-2">Credits completed</dt>
-            <dd className="mt-2">
+            <dd className="mt-1.5">
               <span className={`num ${big}`}>{formatWeight(credits)}</span>
             </dd>
-            <dd className="mt-2 text-xs text-ink-3">ECTS passed</dd>
+            <dd className="mt-1 text-xs text-ink-3">ECTS passed</dd>
           </div>
         </dl>
-        {current.excluded.length > 0 && (
+        {semester.excluded.length > 0 && (
           <p className="mt-5 border-t border-line pt-4 text-sm text-ink-2">
             Not counted this semester yet:{" "}
-            {current.excluded.map((e, i) => (
+            {semester.excluded.map((e, i) => (
               <span key={e.id ?? `${i}-${e.name}`}>
                 {i > 0 && "; "}
                 <span className="wrap-anywhere">{e.name}</span> ({e.reason})
@@ -172,11 +185,10 @@ export function GpaApp({
             .
           </p>
         )}
-        {coursesError && <p role="alert" className="mt-4 text-sm text-bad">Couldn&apos;t load your courses: {coursesError}</p>}
       </Card>
 
       {points.length > 0 && (
-        <Card as="section" aria-labelledby={`${id}-chart`} className="mt-6 p-5 sm:p-7">
+        <Card as="section" aria-labelledby={`${id}-chart`} className="mt-6 p-5">
           <h2 id={`${id}-chart`} className="type-title text-ink">
             GPA per semester
           </h2>
@@ -186,14 +198,14 @@ export function GpaApp({
             ) : (
               <p className="num text-ink-2">
                 {points[0].label}: <strong className="text-ink">{formatGrade(points[0].gpa)}</strong>
-                {points[0].projected && " (if you hit your targets)"}. Add past semesters to see a trend.
+                {points[0].projected && ` (${points[0].note})`}. Add past semesters to see a trend.
               </p>
             )}
           </div>
         </Card>
       )}
 
-      <Card as="section" aria-labelledby={`${id}-target`} className="mt-6 p-5 sm:p-7">
+      <Card as="section" aria-labelledby={`${id}-target`} className="mt-6 p-5">
         <h2 id={`${id}-target`} className="type-title text-ink">
           What GPA do I want?
         </h2>
@@ -216,7 +228,7 @@ export function GpaApp({
           )}
           {target && targetValue !== null && <TargetLine target={target} goal={targetValue} />}
         </div>
-        {ifTargets.gpa !== null && keptProjected.counted.length > 0 && (
+        {ifTargets.gpa !== null && projected.counted.length > 0 && (
           <p className="num mt-4 border-t border-line pt-4 text-sm text-ink-2">
             If you hit your course targets, your overall GPA will be{" "}
             <strong className="text-ink">{formatGrade(ifTargets.gpa)}</strong>.
@@ -227,8 +239,8 @@ export function GpaApp({
       <RankingCard
         references={references}
         semesterGpas={history.map((h) => ({ label: h.label, gpa: h.gpa }))}
-        overallGpa={overall.gpa}
-        projectedGpa={keptProjected.counted.length > 0 ? ifTargets.gpa : null}
+        overallGpa={summary.live}
+        projectedGpa={projected.counted.length > 0 ? ifTargets.gpa : null}
       />
 
       <section aria-labelledby={`${id}-history`} className="mt-12">
@@ -256,7 +268,7 @@ export function GpaApp({
                 file={picker.file as File}
                 existing={pastCourses}
                 existingCourseNames={courses.map((c) => c.name)}
-                onCoursesAdded={(added) => setCourses((prev) => [...added, ...prev])}
+                onCoursesAdded={onCoursesAdded}
                 onSaved={({ saved, removedIds, skipped, removeFailed }) => {
                   picker.clear();
                   setPastCourses((prev) => [...prev.filter((c) => !removedIds.includes(c.id)), ...saved]);
@@ -305,6 +317,6 @@ export function GpaApp({
           </div>
         )}
       </section>
-    </main>
+    </div>
   );
 }

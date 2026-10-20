@@ -31,7 +31,7 @@ export function GpaChart({ points }: { points: GpaPoint[] }) {
       ? `M${x(solid.length - 1)},${y(solid[solid.length - 1].gpa)} L${x(points.length - 1)},${y(last.gpa)}`
       : null;
 
-  const summary = points.map((p) => `${p.label}${p.projected ? " (projected)" : ""}: ${formatGrade(p.gpa)}`).join("; ");
+  const summary = points.map((p) => `${p.label}${p.projected ? ` (${p.note ?? "projected"})` : ""}: ${formatGrade(p.gpa)}`).join("; ");
 
   return (
     <figure className="m-0">
@@ -70,7 +70,7 @@ export function GpaChart({ points }: { points: GpaPoint[] }) {
               stroke={p.projected ? "var(--brand)" : "var(--surface)"}
               strokeWidth="2"
             >
-              <title>{`${p.label}${p.projected ? " (projected)" : ""}: ${formatGrade(p.gpa)}`}</title>
+              <title>{`${p.label}${p.projected ? ` (${p.note ?? "projected"})` : ""}: ${formatGrade(p.gpa)}`}</title>
             </circle>
           ))}
           {/* Value at the end of the line only. */}
@@ -94,7 +94,7 @@ export function GpaChart({ points }: { points: GpaPoint[] }) {
               <th scope="row" className="py-1.5 pr-2 font-normal text-ink">
                 <span className="text-ink-2">{p.tag} · </span>
                 {p.label}
-                {p.projected && <span className="text-ink-2"> (projected)</span>}
+                {p.projected && <span className="text-ink-2"> ({p.note ?? "projected"})</span>}
               </th>
               <td className="num py-1.5 pr-2 text-right font-semibold text-ink">{formatGrade(p.gpa)}</td>
               <td className="py-1.5 num text-right text-ink-2">

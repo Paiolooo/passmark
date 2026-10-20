@@ -100,8 +100,9 @@ Line length under ~70 characters for prose (`max-w-prose`/`max-w-xl`).
 | `Card` | `surface` + `line` border + `shadow-card`, `radius-lg`. `interactive` adds hover lift. |
 | `StatusPill` | Tone `good`/`warn`/`bad`/`neutral`: tint background, coloured text, lucide icon. |
 | `Input`, `inputClass` | 44px, `line-strong` border, `surface` background, green focus ring. |
-| `GradeValue` | The value at the right of a grades row (in `GradesList.tsx`). **Plan**: dashed box, movable. **My grade**: solid ink box with a lock, saved. **Overall**: a parent's combined value on a sunken fill. Tapping it enters a grade (or opens a parent's parts). |
-| `AppNav` | Header switch for logged-in users: "Courses" (/app) and "GPA" (/gpa) in one pill track, the current page raised (`aria-current="page"`), 44px tall, next to the mark. On phones only the mark shows beside it. |
+| `GradeValue` | The value at the right of a grades row (in `GradesList.tsx`). **Plan**: dashed box, movable. **My grade**: solid ink box with a lock, saved. **Overall**: a parent's combined value on a sunken fill. Display only: grades are entered with the row's "Add grade" / "Edit" button. |
+| `GpaBox` | GPA at a glance on /app: Overall GPA (official courses, 2 decimals cut off like IE's transcript), Live (with this semester so far, ⓘ explains it) and This semester. One compact row: a slim bar on phones, top right from 640px. The whole box opens "GPA details"; with no history it invites a transcript import. Notes courses without credits. |
+| `Sheet` | Native `<dialog>` panel: from the right on desktop (max 36rem), from the bottom on phones (max 92dvh). Title + close button; Escape and the backdrop close it; focus returns to the opener. |
 | `Switch` | On/off control (checkbox with `role="switch"`), 44px target; used for "Counts in GPA". Disabled when a course has no numeric grade. |
 | `Menu` | "⋯" row menu: arrow keys, Home/End, Escape returns focus, click outside closes. |
 | Slider (`.pm-slider`) | Native range input restyled; track fill via `--fill`, minimum marker. Locked rows draw a static bar with the same geometry so columns line up. |
@@ -119,18 +120,20 @@ Icons: `lucide-react` only, `strokeWidth` 1.75–2, `aria-hidden`. No emoji anyw
 
 - Landing: max width 1120px. Two-column hero from `lg` (copy left, live demo right), stacked
   below. Left-aligned text throughout; nothing centred except the auth card.
-- App: max width 880px, single column. Order: page title, GPA overview, the add form, then the
-  course list.
+- App: max width 880px, single column. Order: GPA box (slim bar above the title on phones, top
+  right beside it from 640px), page title, the add form, then the course list.
 - Open course: result panel (gauge, "You need X.X", status) on top, then **one Grades list**:
   hint line, projected grade bar (sticky on phones), one row per assessment (name · weight,
-  slider, value, ⋯). Parents with parts are one row with a chevron, collapsed by default.
+  slider, value, "Add grade"/"Edit", ⋯). Every assessment and every part is its own row in one
+  flat list; a parent's chevron shows or hides only its parts (shown by default).
   Rows use `.grade-row`: two lines on phones, one line from 640px with a fixed name column.
-- GPA (/gpa): page title, three stat tiles (Overall GPA, This semester, Credits completed), the GPA
+- GPA details (a sheet on /app; /gpa redirects there with it open): four stat tiles (Overall GPA,
+  Live, This semester, Credits completed), the GPA
   per semester chart with its table, "What GPA do I want?", then "My history": semesters as
   collapsible cards (newest open), each course with ECTS, grade or result and a "Counts" switch.
   "Import transcript PDF" is the primary action, "Add manually" the secondary one. Every place
   that reads a transcript shows the privacy line.
-- Ranking card (on /gpa, after the target): the only input is "Your GPA in your last completed
+- Ranking card (in GPA details, after the target): the only input is "Your GPA in your last completed
   semester" (pre-filled from history, editable, never saved), with a semester select. One big
   estimate ("Top ~8%", "≈ #80 of 1,000"), then "Overall" and "If you hit your course targets",
   then "GPA needed for…" chips (Segmented `fill`: one row on phones). Estimates come from

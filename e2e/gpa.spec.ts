@@ -51,7 +51,9 @@ test.beforeEach(async ({ account }) => {
 
 test("page loads for a logged-in student", async ({ page }) => {
   await page.goto("/gpa");
-  await expect(page.getByRole("heading", { level: 1, name: "GPA" })).toBeVisible();
+  // /gpa is now "GPA details" on the courses page.
+  await expect(page).toHaveURL(/\/app$/);
+  await expect(page.getByRole("dialog", { name: "GPA details" })).toBeVisible();
   await expect(page.getByTestId("logout")).toBeVisible();
   await expect(page.getByRole("region", { name: "Your GPA" })).toContainText("Overall GPA");
   await expect(page.getByText("Add your past semesters", { exact: true })).toBeVisible();
@@ -109,7 +111,7 @@ test("semester GPAs: add with comma decimals, rename to a taken label, edit, del
   await form.getByRole("button", { name: "Save" }).click();
   await expect(form).toHaveCount(0);
   await expect(cardB.getByRole("heading")).toContainText("8.3");
-  await page.reload();
+  await page.goto("/gpa"); // reopens GPA details on /app
   await expect(semesterCard(page, second).getByRole("heading")).toContainText("8.3");
 
   // Delete it.
@@ -178,7 +180,7 @@ test("courses: add by hand, Pass then a grade counts, edit and delete", async ({
   await card.getByRole("button", { name: "Yes, delete" }).click();
   await expect(card.getByText(micro, { exact: true })).toHaveCount(0);
   await expect(card.getByRole("heading")).toContainText("6.0");
-  await page.reload();
+  await page.goto("/gpa"); // reopens GPA details on /app
   await expect(semesterCard(page, label).getByRole("heading")).toContainText("6.0");
   await expectSaneNumbers(page);
   await expectNoSideScroll(page);
@@ -266,7 +268,7 @@ test.describe("transcript import", () => {
     await expect(page.getByRole("status").filter({ hasText: `Saved ${n} course` })).toBeVisible();
     expect(await savedRows(account.db)).toBe(n);
     await expect.poll(() => overallGpa(page)).toBe(before);
-    await page.reload();
+    await page.goto("/gpa"); // reopens GPA details on /app
     await expect.poll(() => overallGpa(page)).toBe(before);
     await expectSaneNumbers(page);
   });

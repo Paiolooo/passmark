@@ -7,7 +7,7 @@ Built with Next.js (App Router), Tailwind CSS and Supabase (Auth + Postgres with
 ## Run locally
 
 1. Create `.env.local` with `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
-2. Run `supabase/schema.sql` once in the Supabase SQL Editor. On a database created before the GPA page, run `supabase/add-transcript.sql`, `supabase/add-ranking.sql` and `supabase/add-ranking-reference.sql` instead (all safe to run again). Ranking reference numbers are added by the owner in the SQL Editor and are never stored in this repository.
+2. Run `supabase/schema.sql` once in the Supabase SQL Editor. On a database created before GPA tracking, run `supabase/add-transcript.sql`, `supabase/add-ranking.sql` and `supabase/add-ranking-reference.sql` instead (all safe to run again). Ranking reference numbers are added by the owner in the SQL Editor and are never stored in this repository.
 3. `npm install`, then `npm run dev` and open http://localhost:3000.
 
 ## Scripts
