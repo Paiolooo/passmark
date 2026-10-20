@@ -7,8 +7,8 @@ import "./globals.css";
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "PassMark: know what you need on the final",
-  description: "PassMark: know what you need on the final",
+  title: "PassMark — Grade & GPA calculator for IE students",
+  description: "PassMark — Grade & GPA calculator for IE students",
 };
 
 export const viewport: Viewport = {

@@ -1,14 +1,14 @@
-import { ChevronDown, FileText, LineChart, Lock, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, FileText, GraduationCap, LineChart, SlidersHorizontal, Target } from "lucide-react";
 import Link from "next/link";
 import { LandingDemo } from "@/components/LandingDemo";
-import { WeightBar, buttonClass } from "@/components/ui";
+import { StatusPill, WeightBar, buttonClass } from "@/components/ui";
 import { EXAMPLE_COURSE } from "@/lib/grades";
 
 const FEATURES = [
-  { icon: FileText, title: "Syllabus import", text: "Drop in the PDF. We read the evaluation table on your device." },
-  { icon: SlidersHorizontal, title: "Plan your grades", text: "Try a grade on one exam and see what the rest need." },
-  { icon: LineChart, title: "GPA tracking", text: "This semester, your whole degree, and what your targets add up to." },
-  { icon: Lock, title: "Private by design", text: "Your grades are tied to your account. Nobody else can read them." },
+  { icon: Target, title: "See the grade you need", text: "On every remaining exam, to pass or to hit your target." },
+  { icon: FileText, title: "Import your syllabus", text: "PassMark reads the weights and minimum grades from the PDF." },
+  { icon: LineChart, title: "Track your GPA in real time", text: "Semester and overall GPA, and how each course is affecting it right now." },
+  { icon: SlidersHorizontal, title: "Plan and predict", text: "Try grades with sliders, predict your GPA and your estimated ranking." },
 ];
 
 const FAQ = [
@@ -25,6 +25,58 @@ const FAQ = [
     a: "Any course graded from 0 to 10 with weighted assessments: exams, participation, projects, quizzes, even “best 4 of 5”. Syllabus import reads IE syllabus PDFs; for anything else you type the weights once.",
   },
 ];
+
+/* ─── Hero: the two things PassMark does, as a small product mock ─────── */
+
+function HeroMock() {
+  return (
+    <figure className="relative mx-auto w-full max-w-[30rem] lg:mx-0 lg:max-w-none">
+      <figcaption className="sr-only">
+        Example: a course card saying you need 6.8 on the Final exam of Corporate Finance, and a GPA tile with a
+        semester GPA of 8.4 and an overall GPA of 8.9, updated live.
+      </figcaption>
+      <p aria-hidden="true" className="mb-2 text-xs font-medium text-ink-3">Example</p>
+      <div aria-hidden="true" className="grid grid-cols-[1.15fr_1fr] gap-3 lg:block">
+        {/* Course card */}
+        <div className="rounded-[var(--radius-lg)] border border-line bg-surface p-3.5 shadow-pop sm:p-5 lg:w-[88%]">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm font-semibold leading-tight text-ink sm:text-base">Corporate Finance</p>
+            <span className="hidden sm:inline-flex">
+              <StatusPill tone="good">On track</StatusPill>
+            </span>
+          </div>
+          <p className="mt-2 flex items-baseline gap-2 sm:mt-3">
+            <span className="num text-[2.25rem] font-semibold leading-none tracking-[-0.04em] text-brand-ink sm:text-[3.25rem]">
+              6.8
+            </span>
+            <span className="text-xs leading-snug text-ink-2 sm:text-sm">
+              needed on the
+              <br />
+              Final exam
+            </span>
+          </p>
+          <div className="mt-3 sm:mt-4">
+            <WeightBar items={EXAMPLE_COURSE.items} size="sm" />
+          </div>
+        </div>
+        {/* GPA tile */}
+        <div className="flex flex-col rounded-[var(--radius-lg)] border border-line bg-surface p-3.5 shadow-pop sm:p-5 lg:relative lg:-mt-6 lg:ml-auto lg:w-[64%]">
+          <p className="flex items-center justify-between gap-2 text-xs font-medium text-ink-2 sm:text-sm">
+            Semester GPA
+            <span className="inline-flex items-center gap-1 rounded-full bg-brand-tint px-2 py-0.5 text-[11px] font-semibold text-brand-ink">
+              <span className="h-1.5 w-1.5 rounded-full bg-brand" />
+              live
+            </span>
+          </p>
+          <p className="num mt-1.5 text-[2.25rem] font-semibold leading-none tracking-[-0.04em] text-ink sm:text-[3.25rem]">8.4</p>
+          <p className="num mt-auto pt-3 text-xs text-ink-2 sm:text-sm">
+            Overall <span className="font-semibold text-ink">8.9</span>
+          </p>
+        </div>
+      </div>
+    </figure>
+  );
+}
 
 /* ─── Small product visuals for "How it works" ─────────────────────────── */
 
@@ -107,7 +159,7 @@ function NeedVisual() {
 const STEPS = [
   { title: "Import your syllabus", text: "Upload the PDF or type the weights. Final exam, midterm, participation…", visual: <ImportVisual /> },
   { title: "Add grades as they come in", text: "Each grade you add shrinks what's still open.", visual: <GradesVisual /> },
-  { title: "See what you need", text: "One clear number for what's left, to pass or to hit your target.", visual: <NeedVisual /> },
+  { title: "See what you need", text: "One clear number for what's left, and your GPA updates with it.", visual: <NeedVisual /> },
 ];
 
 export default function LandingPage() {
@@ -120,30 +172,71 @@ export default function LandingPage() {
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 opacity-40 [background-image:linear-gradient(var(--line)_1px,transparent_1px)] [background-size:100%_32px] [mask-image:linear-gradient(to_bottom,transparent,black_20%,transparent_80%)]"
           />
-          <div className="relative mx-auto grid max-w-[1120px] gap-12 px-4 pb-16 pt-12 sm:px-6 sm:pt-20 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:gap-16 lg:pb-24">
-            <div>
-              <p className="text-sm font-medium text-brand-ink">For IE University students</p>
-              <h1 className="type-display mt-4 max-w-[14ch] text-ink">
-                Know exactly what you need on the final.
-              </h1>
-              <p className="mt-6 max-w-[34rem] text-lg leading-relaxed text-ink-2">
-                Add your courses and your grades as they come in. PassMark shows the grade you need on
-                what&apos;s left to pass, or to hit your target.
+          {/* Everything a first-time visitor needs fits the first screen (1280×800 and 375×667). */}
+          <div className="relative mx-auto grid max-w-[1120px] gap-x-14 px-4 pb-10 pt-5 sm:px-6 sm:pt-12 lg:grid-cols-[1fr_27rem] lg:pb-16 lg:pt-12">
+            <div className="lg:self-end">
+              <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-ink sm:rounded-full sm:bg-brand-tint sm:px-3 sm:py-1 sm:text-[0.9375rem]">
+                <GraduationCap aria-hidden="true" size={16} strokeWidth={2.25} className="shrink-0" />
+                Grade &amp; GPA calculator for IE University students
               </p>
-              <div className="mt-9 flex flex-col items-start gap-4">
+              <h1 className="type-page mt-2 text-ink sm:mt-3 lg:type-display">
+                Know the grade you need to pass — and your GPA, live.
+              </h1>
+            </div>
+            {/* Laptops: the mock sits next to the headline, so the subheadline gets the full width (2 lines). */}
+            <div className="order-last mt-6 lg:order-none lg:row-span-1 lg:mt-0">
+              <HeroMock />
+            </div>
+            <div className="lg:col-span-2">
+              <p className="mt-3 max-w-[36rem] text-[0.9375rem] leading-snug text-ink-2 sm:mt-5 sm:text-lg sm:leading-relaxed lg:mt-5 lg:max-w-[62rem]">
+                Import your syllabus, add grades as they come in, and PassMark shows exactly what you need on each
+                remaining exam and how every course moves your semester and overall GPA.
+              </p>
+              <div className="mt-4 flex flex-col items-start gap-2 sm:mt-6">
                 <Link href="/signup" className={buttonClass("primary", "lg")}>
                   Sign up free
                 </Link>
-                <p className="text-sm text-ink-3">Free · Private · Reads your syllabus PDF</p>
+                <p className="text-sm text-ink-2">Free · Private · 30-second setup</p>
               </div>
             </div>
+          </div>
+        </section>
 
+        <section aria-labelledby="features-title" className="border-t border-line bg-surface/60">
+          <div className="mx-auto max-w-[1120px] px-4 py-14 sm:px-6 sm:py-20">
+            <h2 id="features-title" className="type-page text-ink">
+              What you can do
+            </h2>
+            <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {FEATURES.map((f) => (
+                <li key={f.title} className="rounded-[var(--radius-lg)] border border-line bg-surface p-5 shadow-card">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-tint">
+                    <f.icon aria-hidden="true" size={20} strokeWidth={2} className="text-brand-ink" />
+                  </span>
+                  <h3 className="mt-4 font-semibold text-ink">{f.title}</h3>
+                  <p className="mt-1 text-sm leading-relaxed text-ink-2">{f.text}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        <section aria-labelledby="demo-title" className="border-t border-line">
+          <div className="mx-auto grid max-w-[1120px] gap-8 px-4 py-14 sm:px-6 sm:py-20 lg:grid-cols-[1fr_1.1fr] lg:items-center lg:gap-16">
+            <div>
+              <h2 id="demo-title" className="type-page text-ink">
+                Try it now
+              </h2>
+              <p className="mt-3 max-w-[30rem] text-lg leading-relaxed text-ink-2">
+                Drag the final exam grade and watch the course result change. No account needed for this example.
+              </p>
+            </div>
             <LandingDemo />
           </div>
         </section>
 
         <section aria-labelledby="how-title" className="border-t border-line bg-surface/60">
-          <div className="mx-auto max-w-[1120px] px-4 py-16 sm:px-6 sm:py-24">
+          <div className="mx-auto max-w-[1120px] px-4 py-14 sm:px-6 sm:py-20">
             <h2 id="how-title" className="type-page text-ink">
               How it works
             </h2>
@@ -168,23 +261,6 @@ export default function LandingPage() {
                 </li>
               ))}
             </ol>
-          </div>
-        </section>
-
-        <section aria-labelledby="features-title" className="border-t border-line">
-          <div className="mx-auto max-w-[1120px] px-4 py-14 sm:px-6 sm:py-20">
-            <h2 id="features-title" className="sr-only">
-              What you get
-            </h2>
-            <ul className="grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
-              {FEATURES.map((f) => (
-                <li key={f.title}>
-                  <f.icon aria-hidden="true" size={22} strokeWidth={1.75} className="text-brand" />
-                  <p className="mt-3 font-semibold text-ink">{f.title}</p>
-                  <p className="mt-1 text-sm leading-relaxed text-ink-2">{f.text}</p>
-                </li>
-              ))}
-            </ul>
           </div>
         </section>
 

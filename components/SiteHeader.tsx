@@ -2,7 +2,6 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/supabase/user";
 import { AppNav } from "./AppNav";
 import { LogoutButton } from "./LogoutButton";
-import { buttonClass } from "./ui";
 
 /** The PassMark mark: a small half gauge with the needle past the pass mark. */
 /** `compact`: on phones only the mark shows, to leave room for the Courses | GPA switch. */
@@ -55,7 +54,10 @@ export async function SiteHeader() {
               </div>
             </>
           ) : (
-            <Link href="/login" className={buttonClass("ghost")}>
+            <Link
+              href="/login"
+              className="flex min-h-11 items-center rounded-md px-2 text-sm font-medium text-ink-2 underline-offset-4 hover:text-ink hover:underline"
+            >
               Log in
             </Link>
           )}
