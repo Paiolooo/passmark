@@ -3,7 +3,7 @@
 import { AlertTriangle, ArrowRight, Check, ChevronDown, FileUp, Plus, Trash2 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { ASSESSMENT_COLUMNS, type Course, toAssessment } from "@/lib/courses";
+import { ASSESSMENT_COLUMNS, type Course, type CreditsSource, toAssessment } from "@/lib/courses";
 import { maxAbsences } from "@/lib/syllabus";
 import {
   type Assessment,
@@ -26,6 +26,7 @@ import { type PlanState, hasPlannableRows, usePlanner } from "./usePlanner";
 import type { NewPart } from "./SplitForm";
 import { StatusBadge } from "./StatusBadge";
 import { SyllabusBatchImport } from "./SyllabusBatchImport";
+import { saveCourseCredits } from "./course-save";
 import {
   Card,
   EmptyState,
@@ -80,6 +81,8 @@ export function CourseCard({
   const goToPlanner = useRef(false);
   const goToCredits = useRef(false);
   const creditsRef = useRef<HTMLInputElement>(null);
+  // Credits are shown as text; the field only appears after "Edit" / "Enter manually".
+  const [editingCredits, setEditingCredits] = useState(false);
   const canPlan = useMemo(() => hasPlannableRows(course.assessments), [course.assessments]);
 
   // "Plan grades →" opens the course straight at the planner.
@@ -90,13 +93,13 @@ export function CourseCard({
     plannerRef.current?.focus({ preventScroll: true });
   }, [open]);
 
-  // "Add credits" opens the course at its credits field.
+  // "Add credits" opens the course with its credits field showing.
   useEffect(() => {
-    if (!open || !goToCredits.current) return;
+    if (!open || !editingCredits || !goToCredits.current) return;
     goToCredits.current = false;
     creditsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     creditsRef.current?.focus({ preventScroll: true });
-  }, [open]);
+  }, [open, editingCredits]);
 
   // A course just created from a syllabus opens and scrolls into view.
   useEffect(() => {
@@ -123,11 +126,10 @@ export function CourseCard({
     return ok;
   }
 
+  /** Credits you typed: from now on they show as "entered by you". */
   async function setCredits(value: number | null) {
-    const { ok } = await save(() =>
-      supabase().from("courses").update({ credits: value }).eq("id", course.id).select("id").single(),
-    );
-    if (ok) onUpdate(course.id, (c) => ({ ...c, credits: value }));
+    const { ok } = await save(() => saveCourseCredits(course.id, value, "manual"));
+    if (ok) onUpdate(course.id, (c) => ({ ...c, credits: value, credits_source: value === null ? null : "manual" }));
     return ok;
   }
 
@@ -318,6 +320,7 @@ export function CourseCard({
                 type="button"
                 onClick={() => {
                   goToCredits.current = true;
+                  setEditingCredits(true);
                   setOpen(true);
                 }}
                 className={buttonClass("ghost")}
@@ -349,11 +352,26 @@ export function CourseCard({
           <div className="space-y-10 border-t border-line px-4 pb-6 pt-5 sm:px-6">
             <SaveIndicator status={status} />
             <ResultPanel result={result} gauge={gauge} target={course.target_grade} weightItems={weightItems} />
-            <CourseFacts course={course} />
+            <CourseFacts
+              course={course}
+              editing={editingCredits}
+              onEdit={setEditingCredits}
+              creditsRef={creditsRef}
+              onSaveCredits={setCredits}
+              onImport={() => {
+                setImportWarning(null);
+                picker.open();
+              }}
+            />
             <section aria-labelledby={`${id}-grades`} className="space-y-3">
               <h4 ref={plannerRef} tabIndex={-1} id={`${id}-grades`} className={`${sectionHeading} focus:outline-none`}>
                 Grades
               </h4>
+              {course.source === "syllabus" && topLevel.length > 0 && !picker.file && (
+                <p className="text-sm text-ink-2">
+                  Weights and minimums from your syllabus. To change one, choose Edit in its ⋯ menu.
+                </p>
+              )}
               {picker.input}
               {picker.file ? (
                 <SyllabusBatchImport
@@ -392,7 +410,8 @@ export function CourseCard({
                 )
               ) : (
                 <>
-                {course.source === "manual" && (
+                {/* Without credits, "Course details" already offers the import. */}
+                {course.source === "manual" && course.credits !== null && (
                   <p className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-[var(--radius-md)] bg-sunken px-3 py-2 text-sm text-ink-2">
                     Import the syllabus to fill in weights and credits.
                     <button
@@ -464,10 +483,7 @@ export function CourseCard({
               )}
             </section>
 
-            <div className="grid gap-8 sm:grid-cols-[1fr_auto]">
-              <TargetPicker target={course.target_grade} onSave={setTarget} />
-              <CreditsField key={course.credits ?? "none"} inputRef={creditsRef} credits={course.credits} onSave={setCredits} />
-            </div>
+            <TargetPicker target={course.target_grade} onSave={setTarget} />
 
             <div className="border-t border-line pt-5">
               <DeleteCourse name={course.name} onConfirm={deleteCourse} />
@@ -559,63 +575,78 @@ const TONE_TEXT: Record<CourseResult["tone"], string> = {
   neutral: "text-ink",
 };
 
-/** Credits (ECTS) for the GPA: optional; saved when you leave the field. */
-function CreditsField({
+/** The credits field, shown only after "Edit" or "Enter manually". Enter saves, Escape cancels. */
+function CreditsEditor({
   inputRef,
   credits,
   onSave,
+  onClose,
 }: {
   inputRef: React.Ref<HTMLInputElement>;
   credits: number | null;
   onSave: (value: number | null) => Promise<boolean>;
+  onClose: () => void;
 }) {
   const id = useId();
   const [text, setText] = useState(credits === null ? "" : formatWeight(credits));
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
-  async function commit() {
+  async function commit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
     const value = text.trim() === "" ? null : parseCredits(text);
-    if (text.trim() !== "" && value === null) {
-      setError(`Use a number above 0 and up to ${MAX_COURSE_CREDITS}, e.g. 6 or 7,5.`);
-      return;
-    }
+    if (text.trim() !== "" && value === null) return setError(`Use a number above 0 and up to ${MAX_COURSE_CREDITS}, e.g. 6 or 7,5.`);
     setError(null);
-    if (value !== credits) await onSave(value);
+    if (value === credits) return onClose();
+    setPending(true);
+    const ok = await onSave(value);
+    setPending(false);
+    if (ok) onClose();
   }
 
   return (
-    <div>
-      <label htmlFor={`${id}-credits`} className={sectionHeading}>
-        Credits (ECTS)
-      </label>
-      <p id={`${id}-credits-hint`} className="mt-1 text-sm text-ink-2">
-        {credits === null ? "Needed for your GPA: without credits this course isn't counted." : "Used for your GPA."}
-      </p>
-      <input
-        ref={inputRef}
-        id={`${id}-credits`}
-        type="text"
-        inputMode="decimal"
-        placeholder="e.g. 6"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            e.currentTarget.blur();
-          }
-        }}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={`${id}-credits-hint${error ? ` ${id}-credits-error` : ""}`}
-        className={`${fieldClass} num mt-1 w-28`}
-      />
+    <form
+      onSubmit={commit}
+      noValidate
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        }
+      }}
+      className="flex flex-wrap items-end gap-2"
+    >
+      <div>
+        <label htmlFor={`${id}-credits`} className="block text-xs font-medium text-ink-2">
+          Credits (ECTS)
+        </label>
+        <input
+          ref={inputRef}
+          id={`${id}-credits`}
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          autoFocus
+          placeholder="e.g. 6"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-credits-error` : undefined}
+          className={`${fieldClass} num mt-1 w-28`}
+        />
+      </div>
+      <button type="submit" disabled={pending} aria-busy={pending} className={primaryButton}>
+        {pending ? "Saving…" : "Save"}
+      </button>
+      <button type="button" onClick={onClose} className={buttonClass("ghost")}>
+        Cancel
+      </button>
       {error && (
-        <p id={`${id}-credits-error`} role="alert" className="mt-1 text-sm text-bad">
+        <p id={`${id}-credits-error`} role="alert" className="w-full text-sm text-bad">
           {error}
         </p>
       )}
-    </div>
+    </form>
   );
 }
 
@@ -680,12 +711,35 @@ function ResultPanel({
   );
 }
 
-/** What the syllabus says about the course: credits, semester, absences, exams, re-sit. */
-function CourseFacts({ course }: { course: Course }) {
+const FROM: Record<CreditsSource, string> = {
+  syllabus: "from your syllabus",
+  transcript: "from your transcript",
+  manual: "entered by you",
+};
+
+/**
+ * What we know about the course: credits (with where they came from) and what its syllabus says.
+ * Shown as information; credits change only through "Edit".
+ */
+function CourseFacts({
+  course,
+  editing,
+  onEdit,
+  creditsRef,
+  onSaveCredits,
+  onImport,
+}: {
+  course: Course;
+  editing: boolean;
+  onEdit: (editing: boolean) => void;
+  creditsRef: React.Ref<HTMLInputElement>;
+  onSaveCredits: (value: number | null) => Promise<boolean>;
+  onImport: () => void;
+}) {
   const info = course.info;
   const absences = maxAbsences(course.sessions, info?.attendancePct ?? null);
+  const fromSyllabus = course.source === "syllabus";
   const facts: [string, string][] = [];
-  if (course.credits !== null) facts.push(["Credits", `${formatWeight(course.credits)} ECTS`]);
   if (info?.semesterLabel) facts.push(["Semester", info.semesterLabel]);
   if (absences !== null) facts.push(["Max absences", `${absences} of ${course.sessions} sessions`]);
   else if (course.sessions !== null) facts.push(["Sessions", String(course.sessions)]);
@@ -694,10 +748,40 @@ function CourseFacts({ course }: { course: Course }) {
   if (info?.resitMax != null) facts.push(["Re-sit", `Maximum ${formatGrade(info.resitMax)} in the re-sit`]);
   if (info?.code) facts.push(["Code", info.code]);
   if (info?.language) facts.push(["Language", info.language]);
-  if (facts.length === 0) return null;
+  const link = "rounded-sm font-medium text-brand-ink underline-offset-4 hover:underline";
+
   return (
-    <section aria-label="Course details">
+    <section aria-label="Course details" className="space-y-3">
+      {editing ? (
+        <CreditsEditor inputRef={creditsRef} credits={course.credits} onSave={onSaveCredits} onClose={() => onEdit(false)} />
+      ) : course.credits === null ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[var(--radius-md)] bg-sunken px-3 py-2 text-sm text-ink-2">
+          <span className="min-w-0 flex-1">Import the syllabus to add credits (needed for your GPA).</span>
+          <span className="flex flex-wrap items-center gap-x-3">
+            <button type="button" onClick={onImport} className={`${buttonClass("ghost")} -my-1 text-sm`}>
+              <FileUp aria-hidden="true" size={16} />
+              Import syllabus PDF
+            </button>
+            <button type="button" onClick={() => onEdit(true)} className={`${link} min-h-11`}>
+              Enter manually
+            </button>
+          </span>
+        </div>
+      ) : null}
+
       <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm min-[400px]:grid-cols-2 sm:grid-cols-3">
+        {course.credits !== null && !editing && (
+          <div className="min-w-0">
+            <dt className="text-xs text-ink-3">Credits</dt>
+            <dd className="num text-ink">
+              <span className="font-medium">{formatWeight(course.credits)} ECTS</span>
+              {course.credits_source && <span className="text-ink-2"> · {FROM[course.credits_source]}</span>}{" "}
+              <button type="button" onClick={() => onEdit(true)} className={`${link} ml-1 text-xs`}>
+                Edit<span className="sr-only"> credits</span>
+              </button>
+            </dd>
+          </div>
+        )}
         {facts.map(([label, value]) => (
           <div key={label} className="min-w-0">
             <dt className="text-xs text-ink-3">{label}</dt>
@@ -705,6 +789,7 @@ function CourseFacts({ course }: { course: Course }) {
           </div>
         ))}
       </dl>
+      {fromSyllabus && facts.length > 0 && <p className="text-xs text-ink-3">Details from your syllabus.</p>}
     </section>
   );
 }

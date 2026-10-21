@@ -3,3 +3,7 @@
 -- Run once in the Supabase SQL Editor. Safe to run again. Row Level Security on courses already
 -- covers the new column (owner-only policies on auth.uid()).
 alter table public.courses add column if not exists syllabus_info jsonb null;
+
+-- Where a course's credits came from, so the app can say "5 ECTS · from your syllabus".
+alter table public.courses add column if not exists credits_source text null
+  check (credits_source in ('syllabus', 'transcript', 'manual'));

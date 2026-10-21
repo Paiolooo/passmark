@@ -130,15 +130,16 @@ test("importing a syllabus into a course updates the credits field shown", async
   await page.getByTestId("core-input").fill(name);
   await page.getByTestId("core-submit").click();
   const card = await openCourse(page, name);
+  await card.getByRole("button", { name: "Enter manually" }).click();
   await card.getByLabel("Credits (ECTS)").fill("6");
   await card.getByLabel("Credits (ECTS)").press("Enter");
   await expect(card).toContainText("6 ECTS");
   const chooser = page.waitForEvent("filechooser");
-  await card.getByRole("button", { name: "Import syllabus PDF" }).click();
+  await card.getByRole("button", { name: "Import syllabus PDF" }).first().click();
   await (await chooser).setFiles(`syllabi-test/${PDF}`);
   await card.getByRole("button", { name: "Save", exact: true }).click();
   await expect(card).toContainText("5 ECTS");
-  await expect(card.getByLabel("Credits (ECTS)")).toHaveValue("5");
+  await expect(card.getByRole("region", { name: "Course details" })).toContainText("5 ECTS · from your syllabus");
 });
 
 test("leaving the page while a grade is still saving asks first", async ({ page, account }) => {

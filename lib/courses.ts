@@ -4,8 +4,11 @@ import type { ExamSession } from "./syllabus";
 import type { Reference } from "./ranking";
 
 export const COURSE_COLUMNS = "id, name, target_grade, sessions, credits, source, created_at";
-/** COURSE_COLUMNS plus what a syllabus import found (needs supabase/add-syllabus-info.sql). */
-export const COURSE_COLUMNS_WITH_INFO = `${COURSE_COLUMNS}, syllabus_info`;
+/** COURSE_COLUMNS plus what a syllabus import found and where the credits came from (needs supabase/add-syllabus-info.sql). */
+export const COURSE_COLUMNS_WITH_INFO = `${COURSE_COLUMNS}, syllabus_info, credits_source`;
+
+/** Where a course's credits came from: shown as "· from your syllabus" etc. */
+export type CreditsSource = "syllabus" | "transcript" | "manual";
 
 /** What a syllabus says about a course beyond the grading table. Nothing personal. */
 export type SyllabusInfo = {
@@ -22,7 +25,15 @@ export type SyllabusInfo = {
  * run). The app then works as before, without the extra syllabus facts.
  */
 export function missingInfoColumn(error: { code?: string; message?: string } | null | undefined): boolean {
-  return !!error && (error.code === "42703" || error.code === "PGRST204" || /syllabus_info/.test(error.message ?? ""));
+  return !!error && (error.code === "42703" || error.code === "PGRST204" || /syllabus_info|credits_source/.test(error.message ?? ""));
+}
+
+/** The stored source, or (before the migration) the best guess: syllabus courses got theirs from the syllabus. */
+function creditsSource(row: Row): CreditsSource | null {
+  if (row.credits === null || row.credits === undefined) return null;
+  if (row.credits_source === "syllabus" || row.credits_source === "transcript" || row.credits_source === "manual")
+    return row.credits_source;
+  return row.source === "syllabus" ? "syllabus" : "manual";
 }
 
 function toInfo(v: unknown): SyllabusInfo | null {
@@ -56,6 +67,8 @@ export type Course = {
   created_at: string;
   /** From a syllabus import; null for courses added by name (or before the migration). */
   info: SyllabusInfo | null;
+  /** Where `credits` came from; null when there are no credits. */
+  credits_source: CreditsSource | null;
   assessments: Assessment[];
 };
 
@@ -90,6 +103,7 @@ export function toCourse(row: Row): Course {
     source: row.source === "syllabus" ? "syllabus" : "manual",
     created_at: String(row.created_at),
     info: toInfo(row.syllabus_info),
+    credits_source: creditsSource(row),
     assessments: assessments.map(toAssessment),
   };
 }

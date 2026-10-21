@@ -137,7 +137,7 @@ test("a course added by name invites the syllabus import, which fills it in", as
   await expect(course.getByText("Import the syllabus to fill in weights and credits")).toBeVisible();
 
   const chooser = page.waitForEvent("filechooser");
-  await course.getByRole("button", { name: "Import syllabus PDF" }).click();
+  await course.getByRole("button", { name: "Import syllabus PDF" }).first().click();
   await (await chooser).setFiles(`${DIR}/${MC}`);
   await expect(course.getByRole("article")).toHaveCount(1, { timeout: 50_000 });
   // Importing into this course: no duplicate question, and the course keeps its name.

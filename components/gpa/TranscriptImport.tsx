@@ -3,7 +3,7 @@
 import { AlertTriangle, BookOpen, CircleCheck, LoaderCircle, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { COURSE_COLUMNS, type Course, PAST_COURSE_COLUMNS, type PastCourseRow, toCourse, toPastCourse } from "@/lib/courses";
+import { COURSE_COLUMNS, COURSE_COLUMNS_WITH_INFO, type Course, PAST_COURSE_COLUMNS, type PastCourseRow, toCourse, toPastCourse } from "@/lib/courses";
 import {
   MAX_COURSE_CREDITS,
   defaultCounts,
@@ -17,6 +17,7 @@ import { formatWeight } from "@/lib/grades";
 import { checkPdfFile, readPdfTextItems } from "@/lib/pdf-text";
 import { type CurrentCourse, parseTranscript } from "@/lib/transcript";
 import { Skeleton, buttonClass, cardClass, errorBox, inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "../ui";
+import { withInfo } from "../course-save";
 import { friendlyDbError } from "../useSaver";
 import { PRIVACY_NOTE } from "./GpaDetails";
 import { Switch } from "./HistoryList";
@@ -61,6 +62,7 @@ export function TranscriptImport({
   existing,
   existingCourseNames,
   onCoursesAdded,
+  onCurrentCourses,
   onSaved,
   onCancel,
   onChooseAnother,
@@ -72,6 +74,8 @@ export function TranscriptImport({
   /** Names of the courses already in Courses (current courses with the same name are skipped). */
   existingCourseNames: string[];
   onCoursesAdded: (courses: Course[]) => void;
+  /** The courses in progress on the transcript, as soon as it is read (to fill in missing credits). */
+  onCurrentCourses?: (current: CurrentCourse[]) => void;
   onSaved: (result: ImportResult) => void;
   onCancel: () => void;
   onChooseAnother: () => void;
@@ -79,6 +83,11 @@ export function TranscriptImport({
 }) {
   const id = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // The latest callback, so a slow read never calls one with old course data.
+  const currentCallback = useRef(onCurrentCourses);
+  useEffect(() => {
+    currentCallback.current = onCurrentCourses;
+  });
   const [state, setState] = useState<State>({ step: "reading" });
   const [rows, setRows] = useState<Draft[]>([]);
   const [replace, setReplace] = useState(false);
@@ -124,6 +133,7 @@ export function TranscriptImport({
           officialEcts: transcript.officialEcts,
           current: transcript.current,
         });
+        currentCallback.current?.(transcript.current);
       } catch (err) {
         // The real cause stays in the console for debugging; nothing from the file is logged.
         console.error("PassMark: could not read the transcript PDF", err instanceof Error ? err.name : "error");
@@ -490,12 +500,15 @@ function CurrentCourses({
     setSaving(true);
     setError(null);
     try {
-      const { data, error: e } = await createClient()
-        .from("courses")
-        .insert(missing.map((c) => ({ name: c.name, credits: c.credits })))
-        .select(COURSE_COLUMNS);
+      const db = createClient();
+      const { data, error: e } = await withInfo((info) =>
+        db
+          .from("courses")
+          .insert(missing.map((c) => ({ name: c.name, credits: c.credits, ...(info ? { credits_source: "transcript" } : {}) })))
+          .select(info ? COURSE_COLUMNS_WITH_INFO : COURSE_COLUMNS),
+      );
       if (e) throw e;
-      const courses = (data ?? []).map((row) => toCourse({ ...(row as Record<string, unknown>), assessments: [] }));
+      const courses = ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => toCourse({ ...row, assessments: [] }));
       setAdded((a) => [...a, ...courses.map((c) => c.name)]);
       onAdded(courses);
     } catch (err) {
@@ -511,7 +524,7 @@ function CurrentCourses({
         {current.length} course{current.length === 1 ? "" : "s"} in progress
       </p>
       <p className="mt-1 text-sm text-ink-2">These aren&apos;t finished, so they don&apos;t go in your history. Track them in Courses.</p>
-      <ul className="mt-2 divide-y divide-line text-sm">
+      <ul aria-label="Courses in progress" className="mt-2 divide-y divide-line text-sm">
         {current.map((c, i) => (
           <li key={`${i}-${c.semester}-${c.name}`} className="flex items-center gap-3 py-1.5">
             <span className="min-w-0 flex-1 text-ink">{c.name}</span>

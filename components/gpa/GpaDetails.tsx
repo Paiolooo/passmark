@@ -54,6 +54,7 @@ export function GpaDetails({
   gpaCourses,
   summary,
   onCoursesAdded,
+  onCurrentCourses,
   historyAvailable,
   history: { semesters, setSemesters, pastCourses, setPastCourses },
   references,
@@ -63,6 +64,8 @@ export function GpaDetails({
   gpaCourses: GpaCourse[];
   summary: GpaSummary;
   onCoursesAdded: (added: Course[]) => void;
+  /** Courses in progress on an imported transcript (used to fill in missing credits). */
+  onCurrentCourses: (current: { name: string; credits: number }[]) => void;
   historyAvailable: boolean;
   history: HistoryState;
   references: Reference[];
@@ -269,6 +272,7 @@ export function GpaDetails({
                 existing={pastCourses}
                 existingCourseNames={courses.map((c) => c.name)}
                 onCoursesAdded={onCoursesAdded}
+                onCurrentCourses={onCurrentCourses}
                 onSaved={({ saved, removedIds, skipped, removeFailed }) => {
                   picker.clear();
                   setPastCourses((prev) => [...prev.filter((c) => !removedIds.includes(c.id)), ...saved]);

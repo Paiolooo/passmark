@@ -40,9 +40,13 @@ test("add a course, add assessments by hand, target and credits", async ({ page 
 
   // Credits are saved when you leave the field.
   const c2 = await openCourse(page, name);
+  // No credits yet: a prompt, and the field only after "Enter manually".
+  await expect(c2.getByLabel("Credits (ECTS)")).toHaveCount(0);
+  await c2.getByRole("button", { name: "Enter manually" }).click();
   await c2.getByLabel("Credits (ECTS)").fill("6");
   await c2.getByLabel("Credits (ECTS)").press("Enter");
-  await expect(c2).toContainText("6 ECTS");
+  await expect(c2.getByRole("region", { name: "Course details" })).toContainText("6 ECTS · entered by you");
+  await expect(c2.getByLabel("Credits (ECTS)")).toHaveCount(0);
 
   // Close and open again.
   await c2.getByRole("button", { name: new RegExp(name) }).first().click();

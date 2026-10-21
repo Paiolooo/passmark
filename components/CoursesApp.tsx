@@ -3,11 +3,19 @@
 import { Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { COURSE_COLUMNS, type Course, type PastCourseRow, type PastSemesterRow, toCourse } from "@/lib/courses";
-import { type GpaCourse, gpaSummary } from "@/lib/gpa";
+import {
+  COURSE_COLUMNS,
+  type Course,
+  type CreditsSource,
+  type PastCourseRow,
+  type PastSemesterRow,
+  toCourse,
+} from "@/lib/courses";
+import { type GpaCourse, findCredits, gpaSummary, nameKey } from "@/lib/gpa";
 import { type Tone, computeCourse, summarize } from "@/lib/grades";
 import type { Reference } from "@/lib/ranking";
 import { CourseCard } from "./CourseCard";
+import { saveCourseCredits } from "./course-save";
 import { GpaBox } from "./gpa/GpaBox";
 import { type GpaDetailsHandle, GpaDetails } from "./gpa/GpaDetails";
 import { Sheet } from "./ui/Sheet";
@@ -107,6 +115,47 @@ export function CoursesApp({
 
   const updateCourse: CourseUpdater = (id, update) =>
     setCourses((prev) => prev.map((c) => (c.id === id ? update(c) : c)));
+
+  // Courses added by name get their credits automatically when we can find them: the same course
+  // in your history or transcript, or another course's syllabus. Nothing found: the course asks.
+  const filling = useRef(new Set<string>());
+  function fillCredits(courseId: string, credits: number, source: CreditsSource) {
+    if (filling.current.has(courseId)) return;
+    filling.current.add(courseId);
+    void saveCourseCredits(courseId, credits, source).then(({ error }) => {
+      filling.current.delete(courseId);
+      if (error) return;
+      setCourses((prev) => prev.map((c) => (c.id === courseId ? { ...c, credits, credits_source: source } : c)));
+      const name = courses.find((c) => c.id === courseId)?.name ?? "a course";
+      setAnnouncement(`Credits for ${name} added from your ${source}.`);
+    });
+  }
+
+  // Courses in progress on a transcript read during this visit: they fill in credits too, also
+  // for courses added after the transcript was read.
+  const [transcriptCurrent, setTranscriptCurrent] = useState<{ name: string; credits: number }[]>([]);
+
+  // Runs whenever courses or history change; only writes when a course without credits has a match.
+  const matches = useMemo(
+    () =>
+      courses.flatMap((c) => {
+        const fromTranscript =
+          c.credits === null ? transcriptCurrent.find((t) => nameKey(t.name) === nameKey(c.name) && t.credits > 0) : undefined;
+        const found = fromTranscript
+          ? { credits: fromTranscript.credits, source: "transcript" as const }
+          : findCredits(c, courses, pastCourses);
+        return found ? [{ id: c.id, ...found }] : [];
+      }),
+    [courses, pastCourses, transcriptCurrent],
+  );
+  useEffect(() => {
+    for (const m of matches) fillCredits(m.id, m.credits, m.source);
+    // fillCredits is safe to call again: it ignores courses already being filled.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matches]);
+
+  /** A transcript was just read: its courses in progress fill in the credits of the same courses here. */
+  const creditsFromTranscript = (current: { name: string; credits: number }[]) => setTranscriptCurrent(current);
 
   const removeCourse = (id: string) => {
     setCourses((prev) => prev.filter((c) => c.id !== id));
@@ -260,6 +309,7 @@ export function CoursesApp({
           gpaCourses={gpaCourses}
           summary={gpa}
           onCoursesAdded={(added) => setCourses((prev) => [...added, ...prev])}
+          onCurrentCourses={creditsFromTranscript}
           historyAvailable={historyAvailable}
           history={{ semesters, setSemesters, pastCourses, setPastCourses }}
           references={references}

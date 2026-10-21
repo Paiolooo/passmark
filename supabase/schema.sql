@@ -16,6 +16,8 @@ create table if not exists public.courses (
 );
 -- Syllabus facts (supabase/add-syllabus-info.sql): code, semester, language, attendance, exams, re-sit.
 alter table public.courses add column if not exists syllabus_info jsonb null;
+alter table public.courses add column if not exists credits_source text null
+  check (credits_source in ('syllabus', 'transcript', 'manual'));
 
 create table if not exists public.assessments (
   id uuid primary key default gen_random_uuid(),

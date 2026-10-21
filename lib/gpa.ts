@@ -498,3 +498,25 @@ export function gpaSummary(courses: GpaCourse[], pastCourses: PastCourse[], seme
 
 /** A GPA as shown in the box: two decimals, cut off like IE's transcript (9.1458 → "9.14"). */
 export const formatGpa = (gpa: number) => (Math.floor(gpa * 100 + EPS) / 100).toFixed(2);
+
+// ─── Filling in credits for a course added by name ───────────────────────
+
+/**
+ * Credits for a course without them, found elsewhere: the same course in your history (from your
+ * transcript), or another course in Courses with credits from its syllabus (same name or code).
+ */
+export function findCredits(
+  course: { id: string; name: string; credits: number | null },
+  courses: { id: string; name: string; credits: number | null; credits_source: string | null; info?: { code: string | null } | null }[],
+  history: Pick<PastCourse, "name" | "credits">[],
+): { credits: number; source: "syllabus" | "transcript" } | null {
+  if (course.credits !== null) return null;
+  const key = nameKey(course.name);
+  if (!key) return null;
+  const past = [...history].reverse().find((c) => nameKey(c.name) === key && c.credits > EPS);
+  if (past) return { credits: past.credits, source: "transcript" };
+  const other = courses.find(
+    (c) => c.id !== course.id && c.credits !== null && c.credits > EPS && c.credits_source === "syllabus" && nameKey(c.name) === key,
+  );
+  return other ? { credits: other.credits as number, source: "syllabus" } : null;
+}

@@ -7,10 +7,10 @@ import {
   COURSE_COLUMNS_WITH_INFO,
   type Course,
   type SyllabusInfo,
-  missingInfoColumn,
   toCourse,
 } from "@/lib/courses";
 import { type ConfirmedRow, fillCourseUpdate } from "@/lib/syllabus-import";
+import { withInfo } from "./course-save";
 import { friendlyDbError } from "./useSaver";
 
 export type { ConfirmedRow };
@@ -25,22 +25,6 @@ export type ConfirmedImport = {
 };
 
 type Supabase = ReturnType<typeof createClient>;
-type Result<T> = { data: T | null; error: { code?: string; message: string } | null };
-
-/**
- * Runs a write with the syllabus facts, and again without them if the database doesn't have the
- * column yet (supabase/add-syllabus-info.sql not run): the import still works, minus those facts.
- */
-let infoColumn = true; // until the database says otherwise; then skip it for the rest of the visit
-
-async function withInfo<T>(run: (info: boolean) => PromiseLike<Result<T>>): Promise<Result<T>> {
-  if (!infoColumn) return run(false);
-  const first = await run(true);
-  if (!missingInfoColumn(first.error)) return first;
-  infoColumn = false;
-  return run(false);
-}
-
 /** The assessments (parents, then their parts) for `courseId`. Throws on failure, after undoing what it inserted. */
 async function insertAssessments(supabase: Supabase, courseId: string, rows: ConfirmedRow[]): Promise<void> {
   if (rows.length === 0) return;
@@ -113,7 +97,11 @@ export async function saveSyllabusImport(
     const { data: row, error: e } = await withInfo((info) =>
       supabase
         .from("courses")
-        .insert(info ? { ...course, syllabus_info: data.info } : course)
+        .insert(
+          info
+            ? { ...course, syllabus_info: data.info, credits_source: data.credits === null ? null : "syllabus" }
+            : course,
+        )
         .select("id")
         .single(),
     );
@@ -147,7 +135,11 @@ export async function saveSyllabusImport(
     const { error: e } = await withInfo((info) =>
       supabase
         .from("courses")
-        .update(info && data.info ? { ...update, syllabus_info: data.info } : update)
+        .update(
+          info && data.info
+            ? { ...update, syllabus_info: data.info, ...(data.credits !== null ? { credits_source: "syllabus" } : {}) }
+            : update,
+        )
         .eq("id", id as string)
         .select("id"),
     );

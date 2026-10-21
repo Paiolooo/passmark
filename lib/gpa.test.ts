@@ -4,6 +4,7 @@ import {
   MAX_COURSE_CREDITS,
   MAX_SEMESTER_CREDITS,
   chartPoints,
+  findCredits,
   formatGpa,
   gpaSummary,
   liveSemester,
@@ -634,3 +635,26 @@ describe("GPA with a course below a minimum", () => {
   });
 });
 
+
+describe("findCredits (a course added by name)", () => {
+  const added = { id: "new", name: "  management   CONTROL ", credits: null };
+  const past = (name: string, credits: number) => ({ name, credits });
+
+  it("takes the credits from the same course in your history (transcript)", () => {
+    expect(findCredits(added, [], [past("Ethics", 3), past("Management Control", 5)])).toEqual({ credits: 5, source: "transcript" });
+  });
+
+  it("else from another course's syllabus, never from manual entries", () => {
+    const courses = [
+      { id: "a", name: "Management control", credits: 4, credits_source: "manual", info: null },
+      { id: "b", name: "Management Control", credits: 5, credits_source: "syllabus", info: null },
+    ];
+    expect(findCredits(added, courses, [])).toEqual({ credits: 5, source: "syllabus" });
+    expect(findCredits(added, courses.slice(0, 1), [])).toBeNull();
+  });
+
+  it("nothing to do for a course that has credits, or no match", () => {
+    expect(findCredits({ ...added, credits: 6 }, [], [past("Management Control", 5)])).toBeNull();
+    expect(findCredits(added, [], [past("Marketing", 6)])).toBeNull();
+  });
+});
