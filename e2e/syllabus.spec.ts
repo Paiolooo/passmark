@@ -76,7 +76,7 @@ test("the same course again: update the existing one instead of a copy", async (
 
   await page.getByTestId("syllabus-files").setInputFiles(`${DIR}/${MC}`);
   const card = cards(page).first();
-  await expect(card).toContainText("“management control” is already in your courses.", { timeout: 20_000 });
+  await expect(card).toContainText("“management control” is already in your courses.", { timeout: 50_000 });
   await expect(card.getByRole("radio", { name: "Update existing course" })).toBeChecked();
   await page.getByRole("button", { name: "Add course", exact: true }).last().click();
   await expect(preview(page)).toHaveCount(0, { timeout: 30_000 });
@@ -102,7 +102,7 @@ test("drag and drop PDFs onto the import area", async ({ page }) => {
   await zone.dispatchEvent("dragenter", { dataTransfer: data });
   await expect(zone).toContainText("Drop your syllabus PDFs here");
   await zone.dispatchEvent("drop", { dataTransfer: data });
-  await expect(cards(page)).toHaveCount(1, { timeout: 20_000 });
+  await expect(cards(page)).toHaveCount(1, { timeout: 50_000 });
   await expect(cards(page).first().getByLabel("Course name")).toHaveValue("MANAGEMENT CONTROL");
 });
 
@@ -117,7 +117,7 @@ test("remove a card, and a file that isn't a syllabus", async ({ page }, info) =
   writeFileSync(text, "hello");
   await page.goto("/app");
   await page.getByTestId("syllabus-files").setInputFiles([`${DIR}/${PDFS[0]}`, junk, text]);
-  await expect(page.getByRole("alert").filter({ hasText: "notes.txt" })).toContainText("isn't a PDF", { timeout: 20_000 });
+  await expect(page.getByRole("alert").filter({ hasText: "notes.txt" })).toContainText("isn't a PDF", { timeout: 50_000 });
   // The empty PDF still makes a card, with everything marked "not found".
   const empty = cards(page).filter({ has: page.getByText("not-a-syllabus.pdf") });
   await expect(empty).toContainText("not found");
@@ -139,7 +139,7 @@ test("a course added by name invites the syllabus import, which fills it in", as
   const chooser = page.waitForEvent("filechooser");
   await course.getByRole("button", { name: "Import syllabus PDF" }).click();
   await (await chooser).setFiles(`${DIR}/${MC}`);
-  await expect(course.getByRole("article")).toHaveCount(1, { timeout: 20_000 });
+  await expect(course.getByRole("article")).toHaveCount(1, { timeout: 50_000 });
   // Importing into this course: no duplicate question, and the course keeps its name.
   await expect(course.getByRole("radio")).toHaveCount(0);
   await course.getByRole("button", { name: "Save", exact: true }).click();

@@ -9,7 +9,7 @@ design system is `DESIGN.md`.
 
 | Path | What |
 | --- | --- |
-| `/` | Landing: hero (eyebrow, headline, one "Sign up free"), example cards, "What you can do", interactive demo, how it works, FAQ |
+| `/` | Landing: hero (eyebrow, headline, one "Sign up free"), example cards, "What you can do", interactive demo, how it works, FAQ. Logged in (read on the server, no flash): "Go to my courses" + "Welcome back" instead |
 | `/signup`, `/login` | Email + password, straight to `/app` (no email confirmation) |
 | `/app` | GPA box, syllabus drop zone (several PDFs), "or add a course by name" (`core-input`, `core-submit`), courses (`core-item`); "GPA details" panel |
 | `/gpa` | Redirects to `/app` with GPA details open |
@@ -34,6 +34,8 @@ Link previews: `app/opengraph-image.tsx` (1200×630, fonts in `assets/fonts/`). 
   writes to one assessment go out in order, and leaving the page mid-save asks first.
 - **Sliders focus themselves on pointer down**: Safari and Firefox on macOS don't focus a clicked
   range input, so arrow keys stopped working after a click (`components/ui/Slider.tsx`).
+- **Header for logged-in students:** "My courses", the account pill and logout (always visible).
+  On phones the wordmark shrinks to the mark to make room.
 - **GPA details is a panel below the header, not a modal**, so the logout button (contract) stays
   usable while it is open.
 - **Syllabus parsing** (`lib/syllabus.ts`) reads English and Spanish IE syllabi in the browser;
@@ -65,6 +67,9 @@ Until `add-syllabus-info.sql` runs, the app works without the extra syllabus fac
   `E2E_BASE_URL=http://localhost:3100 npx playwright test`. Tests sign up throwaway accounts
   (`e2e-…@passmark-test.dev`); remove them with `e2e/cleanup.sql`.
 - WebKit (Safari) can't run on the development Mac (macOS 14), so browser tests are Chromium only.
+- Requests from the development network to Supabase occasionally stall for 10 seconds or more, so a
+  full parallel run sometimes times out one or two tests. Re-run those; use `--workers 2` to also
+  stay under Supabase's sign-up rate limit.
 
 ## Open items
 

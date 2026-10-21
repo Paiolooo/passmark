@@ -3,6 +3,7 @@ import Link from "next/link";
 import { LandingDemo } from "@/components/LandingDemo";
 import { StatusPill, WeightBar, buttonClass } from "@/components/ui";
 import { EXAMPLE_COURSE } from "@/lib/grades";
+import { getCurrentUser } from "@/lib/supabase/user";
 
 const FEATURES = [
   { icon: Target, title: "See the grade you need", text: "On every remaining exam, to pass or to hit your target." },
@@ -162,7 +163,9 @@ const STEPS = [
   { title: "See what you need", text: "One clear number for what's left, and your GPA updates with it.", visual: <NeedVisual /> },
 ];
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  // Read on the server, so a logged-in student sees "Go to my courses" straight away (no flash).
+  const user = await getCurrentUser();
   return (
     <>
       <main className="flex-1">
@@ -188,10 +191,21 @@ export default function LandingPage() {
                 remaining exam and how every course moves your semester and overall GPA.
               </p>
               <div className="mt-4 flex flex-col items-start gap-2 sm:mt-6">
-                <Link href="/signup" className={buttonClass("primary", "lg")}>
-                  Sign up free
-                </Link>
-                <p className="text-sm text-ink-2">Free · Private · 30-second setup</p>
+                {user ? (
+                  <>
+                    <Link href="/app" className={buttonClass("primary", "lg")}>
+                      Go to my courses
+                    </Link>
+                    <p className="text-sm text-ink-2">Welcome back</p>
+                  </>
+                ) : (
+                  <>
+                    <Link href="/signup" className={buttonClass("primary", "lg")}>
+                      Sign up free
+                    </Link>
+                    <p className="text-sm text-ink-2">Free · Private · 30-second setup</p>
+                  </>
+                )}
               </div>
             </div>
             <div className="order-last mt-6 lg:order-none lg:mt-0 lg:self-center">

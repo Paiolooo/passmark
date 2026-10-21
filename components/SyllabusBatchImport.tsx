@@ -17,6 +17,25 @@ import { AssessmentRowsEditor } from "./AssessmentRowsEditor";
 import { saveSyllabusImport } from "./syllabus-save";
 import { Skeleton, cardClass, errorBox, inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "./ui";
 
+/** A syllabus reads in about a second; never leave a card spinning forever. */
+const READ_TIMEOUT_MS = 45_000;
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("timeout")), ms);
+    work.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 type Item =
   | { key: number; fileName: string; status: "reading" }
   | { key: number; fileName: string; status: "failed"; message: string }
@@ -63,13 +82,21 @@ export function SyllabusBatchImport({
         if (problem) next = { key, fileName: file.name, status: "failed", message: problem };
         else {
           try {
-            const draft = draftFromSyllabus(parseSyllabus(await readPdfTextItems(file)), file.name);
+            const draft = draftFromSyllabus(parseSyllabus(await withTimeout(readPdfTextItems(file), READ_TIMEOUT_MS)), file.name);
             draft.target = target ? target.id : (findDuplicate(draft, courses)?.id ?? "new");
             if (target && !draft.name.trim()) draft.name = target.name;
             next = { key, fileName: file.name, status: "ready", draft };
           } catch (err) {
             console.error("PassMark: could not read the syllabus PDF", err);
-            next = { key, fileName: file.name, status: "failed", message: "We couldn't open this PDF. It may be damaged or password-protected." };
+            next = {
+              key,
+              fileName: file.name,
+              status: "failed",
+              message:
+                err instanceof Error && err.message === "timeout"
+                  ? "Reading this PDF took too long. Remove it and add it again, or add the course by name."
+                  : "We couldn't open this PDF. It may be damaged or password-protected.",
+            };
           }
         }
         setItems((prev) => prev.map((it) => (it.key === key ? next : it)));
