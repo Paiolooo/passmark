@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { EXAMPLE_COURSE, type Tone, computeResult, formatGrade, formatResult, formatWeight } from "@/lib/grades";
+import { EXAMPLE_COURSE, type Tone, belowMinimumHeadline, computeResult, formatGrade, formatResult, formatWeight } from "@/lib/grades";
 import { GradeGauge } from "./ui/GradeGauge";
 import { Slider, StatusPill, WeightBar } from "./ui";
 
@@ -15,11 +15,12 @@ export function LandingDemo() {
   const [grade, setGrade] = useState(needed.needed ?? 7);
   const items = EXAMPLE_COURSE.items.map((i) => (i === final ? { ...i, grade } : i));
   const result = computeResult(items, EXAMPLE_COURSE.target);
-  const projected = result.finalGrade ?? 0;
+  // Every item is graded here, so this is the real weighted grade (even below a minimum).
+  const projected = result.finalGrade as number;
 
   let tone: Tone = "bad";
   let status = "Not passed";
-  if (result.outcome === "below-minimum") status = `Below the ${formatGrade(final.minGrade!)} minimum`;
+  if (result.outcome === "below-minimum") status = belowMinimumHeadline(final.name, final.minGrade!);
   else if (result.badge === "Passed" && result.details[0] === "Target reached") [tone, status] = ["good", "Target reached"];
   else if (result.badge === "Passed") [tone, status] = ["warn", "Passed, below target"];
 
@@ -28,7 +29,7 @@ export function LandingDemo() {
       aria-labelledby={`${id}-title`}
       className="relative rounded-[22px] border border-line bg-surface p-5 shadow-pop sm:p-7"
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <div>
           <p className="text-xs font-medium text-ink-3">Try it: example course</p>
           <h2 id={`${id}-title`} className="type-title mt-0.5 text-ink">

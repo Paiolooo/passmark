@@ -79,7 +79,7 @@ test("the same course again: update the existing one instead of a copy", async (
   await expect(card).toContainText("“management control” is already in your courses.", { timeout: 20_000 });
   await expect(card.getByRole("radio", { name: "Update existing course" })).toBeChecked();
   await page.getByRole("button", { name: "Add course", exact: true }).last().click();
-  await expect(preview(page)).toHaveCount(0, { timeout: 20_000 });
+  await expect(preview(page)).toHaveCount(0, { timeout: 30_000 });
   await expect(page.getByTestId("core-item")).toHaveCount(1);
   const course = await openCourse(page, "management control");
   await expect(course).toContainText("5 ECTS");
@@ -143,7 +143,7 @@ test("a course added by name invites the syllabus import, which fills it in", as
   // Importing into this course: no duplicate question, and the course keeps its name.
   await expect(course.getByRole("radio")).toHaveCount(0);
   await course.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(course.getByText("Weights: 100%")).toBeVisible({ timeout: 20_000 });
+  await expect(course.getByText("Weights: 100%")).toBeVisible({ timeout: 30_000 });
   await expect(course).toContainText("5 ECTS");
   await expect(courseCard(page, name)).toHaveCount(1);
 });

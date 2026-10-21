@@ -3,6 +3,7 @@
 import {
   type Assessment,
   PASS_GRADE,
+  belowMinimumHeadline,
   buildCourseModel,
   courseModelFor,
   effectiveBestOf,
@@ -51,8 +52,8 @@ export type PlanInput = {
   totalWeight: number;
   /** Minimums on a parent's combined grade, checked against the plan (see planStatus). */
   groups: GroupMinimum[];
-  /** A real grade already below its minimum (name), or null. */
-  failedMinimum: string | null;
+  /** A real grade already below its minimum, or null. */
+  failedMinimum: { name: string; minGrade: number } | null;
 };
 
 /** A minimum on a parent with parts: its combined grade, real grades and plans, must reach it. */
@@ -93,7 +94,7 @@ export function planInput(assessments: Assessment[], target?: number): PlanInput
     points: items.reduce((sum, i) => sum + (i.grade === null ? 0 : i.weight * i.grade), 0),
     totalWeight: items.reduce((sum, i) => sum + i.weight, 0),
     groups: groupMinimums(assessments),
-    failedMinimum: failed?.name ?? null,
+    failedMinimum: failed ? { name: failed.name, minGrade: failed.minGrade } : null,
   };
 }
 
@@ -287,7 +288,7 @@ export type PlanStatus = {
   /** How many rows are free to adjust (not pinned, not being moved). */
   freeCount: number;
   /** A minimum the plan misses: a real grade below it, or a parent's combined plan below it. */
-  belowMinimum: { name: string; minGrade: number | null } | null;
+  belowMinimum: { name: string; minGrade: number; graded: boolean } | null;
 };
 
 /** How a plan stands against the target. `fixed` = rows that don't adjust (pinned or being moved). */
@@ -307,9 +308,9 @@ export function planStatus(
     return v !== null && v < g.minGrade - TOLERANCE;
   });
   const belowMinimum = input.failedMinimum
-    ? { name: input.failedMinimum, minGrade: null }
+    ? { ...input.failedMinimum, graded: true }
     : group
-      ? { name: group.name, minGrade: group.minGrade }
+      ? { name: group.name, minGrade: group.minGrade, graded: false }
       : null;
   return {
     projected,
@@ -331,8 +332,8 @@ export function planStatus(
 export function planMessage(status: PlanStatus, moving: string | null): string | null {
   const min = status.belowMinimum;
   if (min) {
-    return min.minGrade === null
-      ? `Below the minimum on ${min.name}: you won't pass in the ordinary call.`
+    return min.graded
+      ? `${belowMinimumHeadline(min.name, min.minGrade)}.`
       : `Below the minimum on ${min.name}: its parts need ${formatGrade(min.minGrade)} combined. Raise them.`;
   }
   const others = moving ? "the others" : "every open grade";

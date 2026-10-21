@@ -174,7 +174,7 @@ export default function LandingPage() {
           />
           {/* Everything a first-time visitor needs fits the first screen (1280×800 and 375×667). */}
           <div className="relative mx-auto grid max-w-[1120px] gap-x-14 px-4 pb-10 pt-5 sm:px-6 sm:pt-12 lg:grid-cols-[1fr_27rem] lg:pb-16 lg:pt-12">
-            <div className="lg:self-end">
+            <div className="lg:self-center">
               <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-ink sm:rounded-full sm:bg-brand-tint sm:px-3 sm:py-1 sm:text-[0.9375rem]">
                 <GraduationCap aria-hidden="true" size={16} strokeWidth={2.25} className="shrink-0" />
                 Grade &amp; GPA calculator for IE University students
@@ -182,13 +182,8 @@ export default function LandingPage() {
               <h1 className="type-page mt-2 text-ink sm:mt-3 lg:type-display">
                 Know the grade you need to pass — and your GPA, live.
               </h1>
-            </div>
-            {/* Laptops: the mock sits next to the headline, so the subheadline gets the full width (2 lines). */}
-            <div className="order-last mt-6 lg:order-none lg:row-span-1 lg:mt-0">
-              <HeroMock />
-            </div>
-            <div className="lg:col-span-2">
-              <p className="mt-3 max-w-[36rem] text-[0.9375rem] leading-snug text-ink-2 sm:mt-5 sm:text-lg sm:leading-relaxed lg:mt-5 lg:max-w-[62rem]">
+              {/* About 60 characters per line, so it never runs under the example cards. */}
+              <p className="mt-3 max-w-[60ch] text-[0.9375rem] leading-snug text-ink-2 sm:mt-5 sm:text-lg sm:leading-relaxed">
                 Import your syllabus, add grades as they come in, and PassMark shows exactly what you need on each
                 remaining exam and how every course moves your semester and overall GPA.
               </p>
@@ -198,6 +193,9 @@ export default function LandingPage() {
                 </Link>
                 <p className="text-sm text-ink-2">Free · Private · 30-second setup</p>
               </div>
+            </div>
+            <div className="order-last mt-6 lg:order-none lg:mt-0 lg:self-center">
+              <HeroMock />
             </div>
           </div>
         </section>
@@ -287,12 +285,6 @@ export default function LandingPage() {
           </div>
         </section>
       </main>
-      <footer className="border-t border-line">
-        <div className="mx-auto flex max-w-[1120px] flex-col gap-1 px-4 py-8 text-sm text-ink-3 sm:flex-row sm:justify-between sm:px-6">
-          <p>Independent student project. Not affiliated with IE University.</p>
-          <p>PassMark</p>
-        </div>
-      </footer>
     </>
   );
 }

@@ -149,7 +149,14 @@ Icons: `lucide-react` only, `strokeWidth` 1.75–2, `aria-hidden`. No emoji anyw
   then "GPA needed for…" chips (Segmented `fill`: one row on phones). Estimates come from
   owner-provided reference data; the footer names it ("Based on BBA reference data for …") and
   always says "Estimate, not an official IE ranking." Wording says "your degree", never "class".
-- Auth: a single 420px card centred on the paper background.
+- Auth: a single 420px card centred on the paper background. Sign-up lists three ticks under the
+  title (what you get), above the unchanged form.
+- Footer (every page): "Independent student project. Not affiliated with IE University." and links
+  to Privacy and home.
+- Account (/account, linked from the header's account area; logout stays beside it): three cards,
+  change password, export my data, delete my account (typed DELETE confirmation, red only there).
+- Privacy (/privacy): 720px reading column, plain-language sections.
+- 404: "404" eyebrow, page title, one sentence, the way back (my courses when logged in, else home).
 
 ## Do
 

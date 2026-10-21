@@ -45,11 +45,24 @@ function check(): string[] {
 }
 
 for (const scheme of ["light", "dark"] as const) {
-  test(`contrast: landing (${scheme})`, async ({ browser }) => {
+  test(`contrast: public pages (${scheme})`, async ({ browser }) => {
     const page = await browser.newPage({ colorScheme: scheme, storageState: undefined });
+    for (const path of ["/", "/signup", "/login", "/privacy", "/no-such-page"]) {
+      await page.goto(path);
+      expect(await page.evaluate(check), path).toEqual([]);
+    }
+    // The demo below its minimum (red status).
     await page.goto("/");
+    await page.getByRole("slider").first().fill("2");
     expect(await page.evaluate(check)).toEqual([]);
     await page.close();
+  });
+
+  test(`contrast: account (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.goto("/account");
+    await page.getByRole("button", { name: "Delete my account…" }).click();
+    expect(await page.evaluate(check)).toEqual([]);
   });
 
   test(`contrast: /app and GPA details (${scheme})`, async ({ page, account }) => {

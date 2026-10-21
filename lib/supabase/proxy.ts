@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "./env";
 
-const PROTECTED = ["/app", "/gpa"];
+const PROTECTED = ["/app", "/gpa", "/account"];
 const AUTH_PAGES = ["/login", "/signup"];
 
 function matches(pathname: string, paths: string[]) {

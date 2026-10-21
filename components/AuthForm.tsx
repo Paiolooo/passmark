@@ -9,7 +9,7 @@ import {
   friendlyAuthError,
   validateCredentials,
 } from "@/lib/auth-errors";
-import { CircleAlert } from "lucide-react";
+import { Check, CircleAlert } from "lucide-react";
 import { buttonClass, errorBox, inputClass } from "./ui";
 
 const COPY = {
@@ -88,6 +88,16 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
       <div className="w-full max-w-[420px] rounded-[22px] border border-line bg-surface p-6 shadow-pop sm:p-8">
         <h1 className="type-page text-ink">{copy.title}</h1>
         <p className="mt-1 text-ink-2">{copy.intro}</p>
+        {mode === "signup" && (
+          <ul aria-label="What you get" className="mt-4 space-y-1.5 text-sm text-ink">
+            {["See the grade you need on every exam", "Your GPA, live", "No email confirmation needed"].map((t) => (
+              <li key={t} className="flex items-start gap-2">
+                <Check aria-hidden="true" size={16} strokeWidth={2.5} className="mt-0.5 shrink-0 text-brand" />
+                {t}
+              </li>
+            ))}
+          </ul>
+        )}
 
         <form onSubmit={onSubmit} noValidate className="mt-7 space-y-5">
           <div>

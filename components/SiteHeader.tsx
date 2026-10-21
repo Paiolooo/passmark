@@ -35,18 +35,22 @@ export async function SiteHeader() {
             <>
               {/* Compact account area: the logout control always stays visible. */}
               <div className="flex items-center gap-1 sm:rounded-full sm:border sm:border-line sm:bg-surface sm:p-0.5 sm:shadow-card">
-                <span
-                  aria-hidden="true"
-                  className="hidden h-8 w-8 items-center justify-center rounded-full bg-brand-tint sm:flex text-sm font-semibold text-brand-ink"
+                <Link
+                  href="/account"
+                  aria-label={`Account${user.email ? ` (${user.email})` : ""}`}
+                  className="flex min-h-11 items-center gap-1 rounded-full px-2 text-sm font-medium text-ink-2 hover:bg-sunken hover:text-ink sm:min-h-8 sm:px-0 sm:pr-1"
                 >
-                  {initial}
-                </span>
-                {user.email && (
-                  <span className="hidden max-w-48 truncate pl-1 pr-1 text-sm text-ink-2 md:block">
-                    <span className="sr-only">Logged in as </span>
-                    {user.email}
+                  <span
+                    aria-hidden="true"
+                    className="hidden h-8 w-8 items-center justify-center rounded-full bg-brand-tint text-sm font-semibold text-brand-ink sm:flex"
+                  >
+                    {initial}
                   </span>
-                )}
+                  <span className="sm:sr-only md:not-sr-only md:max-w-48 md:truncate md:pl-1 md:font-normal">
+                    <span className="md:hidden">Account</span>
+                    {user.email && <span className="hidden md:inline">{user.email}</span>}
+                  </span>
+                </Link>
                 <LogoutButton />
               </div>
             </>

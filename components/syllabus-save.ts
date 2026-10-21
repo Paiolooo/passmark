@@ -31,9 +31,14 @@ type Result<T> = { data: T | null; error: { code?: string; message: string } | n
  * Runs a write with the syllabus facts, and again without them if the database doesn't have the
  * column yet (supabase/add-syllabus-info.sql not run): the import still works, minus those facts.
  */
+let infoColumn = true; // until the database says otherwise; then skip it for the rest of the visit
+
 async function withInfo<T>(run: (info: boolean) => PromiseLike<Result<T>>): Promise<Result<T>> {
+  if (!infoColumn) return run(false);
   const first = await run(true);
-  return missingInfoColumn(first.error) ? run(false) : first;
+  if (!missingInfoColumn(first.error)) return first;
+  infoColumn = false;
+  return run(false);
 }
 
 /** The assessments (parents, then their parts) for `courseId`. Throws on failure, after undoing what it inserted. */

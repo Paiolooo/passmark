@@ -252,7 +252,12 @@ export function CourseCard({
         tone: planner.status.reachesTarget ? "good" : planner.status.passes ? "warn" : "bad",
         caption: "Projected with your plan",
       }
-    : { value: result.finalGrade, tone: result.tone, caption: result.finalGrade === null ? "No grade yet" : "Final grade" };
+    : {
+        value: result.finalGrade,
+        tone: result.tone,
+        caption:
+          result.finalGrade === null ? "No grade yet" : result.outcome === "below-minimum" ? "Weighted grade, not passed" : "Final grade",
+      };
 
   return (
     <Card
@@ -630,7 +635,9 @@ function ResultPanel({
       ? { value: result.needed!, label: "needed on what's left", format: formatGrade }
       : result.outcome === "final"
         ? { value: result.finalGrade!, label: "final grade", format: formatResult }
-        : null;
+        : result.outcome === "below-minimum" && result.finalGrade !== null
+          ? { value: result.finalGrade, label: "weighted grade, not passed", format: formatResult }
+          : null;
 
   return (
     <section

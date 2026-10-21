@@ -30,6 +30,12 @@ export function Slider({
         step={0.1}
         value={value}
         {...props}
+        // Safari (and Firefox on macOS) don't focus a range input you click, so arrow keys would
+        // stop working after a click. Focus it ourselves.
+        onPointerDown={(e) => {
+          e.currentTarget.focus({ preventScroll: true });
+          props.onPointerDown?.(e);
+        }}
         className={`pm-slider relative z-10 block ${className}`}
         style={
           {

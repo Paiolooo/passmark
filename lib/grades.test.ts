@@ -120,7 +120,7 @@ describe("computeResult", () => {
     expect(r.outcome).toBe("below-minimum");
     expect(r.badge).toBe("Below minimum");
     expect(r.headline).toBe(
-      "Below the minimum on Final exam (needs 4.5, got 4.0). You won't pass this course in the ordinary call.",
+      "Not passed: below the 4.5 minimum on the Final exam",
     );
   });
 
@@ -496,7 +496,7 @@ describe("minimum on a parent", () => {
     const r = computeCourse(rows, 5);
     expect(r.outcome).toBe("below-minimum");
     expect(r.headline).toBe(
-      "Below the minimum on Quizzes (needs 4.5, got 4.0). You won't pass this course in the ordinary call.",
+      "Not passed: below the 4.5 minimum on the Quizzes",
     );
   });
 
@@ -541,3 +541,35 @@ describe("rounding of results (never too optimistic)", () => {
     expect(r.headline).toBe("Final grade: 4.9");
   });
 });
+
+describe("below a minimum: the real weighted grade, never 0.0", () => {
+  const items = (final: number | null) => [
+    { name: "Final exam", weight: 40, grade: final, minGrade: 4 },
+    { name: "Coursework", weight: 60, grade: 8, minGrade: null },
+  ];
+
+  it("everything graded: shows the weighted grade and why it doesn't pass", () => {
+    const r = computeResult(items(3), 5);
+    expect(r.outcome).toBe("below-minimum");
+    // 0.4 × 3 + 0.6 × 8 = 6.0
+    expect(r.finalGrade).toBeCloseTo(6, 9);
+    expect(r.headline).toBe("Not passed: below the 4.0 minimum on the Final exam");
+    expect(r.details[0]).toMatch(/You got 3\.0 there\. Your weighted grade is 6\.0/);
+    expect(r.badge).toBe("Below minimum");
+  });
+
+  it("the landing demo's example: a 2.0 on the final is a 5.4, not 0.0", () => {
+    const withFinal = EXAMPLE_COURSE.items.map((i) => (i.grade === null ? { ...i, grade: 2 } : i));
+    const r = computeResult(withFinal, EXAMPLE_COURSE.target);
+    // (15×8 + 30×6.5 + 20×7.5 + 35×2) / 100 = 5.35
+    expect(r.finalGrade).toBeCloseTo(5.35, 9);
+    expect(r.headline).toBe("Not passed: below the 4.0 minimum on the Final exam");
+  });
+
+  it("something still open: no final grade yet, still not passed", () => {
+    const r = computeResult([...items(3), { name: "Project", weight: 0, grade: null, minGrade: null }, { name: "Quiz", weight: 10, grade: null, minGrade: null }], 5);
+    expect(r.outcome).toBe("below-minimum");
+    expect(r.finalGrade).toBeNull();
+  });
+});
+

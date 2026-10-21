@@ -614,3 +614,23 @@ describe("GPA box (gpaSummary)", () => {
   });
 });
 
+describe("GPA with a course below a minimum", () => {
+  it("counts its real weighted grade so far, never 0", () => {
+    const failing: GpaCourse = {
+      name: "Finance",
+      credits: 6,
+      target: 7,
+      result: computeResult(
+        [
+          { name: "Final exam", weight: 40, grade: 3, minGrade: 4 },
+          { name: "Coursework", weight: 60, grade: 8, minGrade: null },
+        ],
+        7,
+      ),
+    };
+    expect(failing.result.outcome).toBe("below-minimum");
+    // 0.4 × 3 + 0.6 × 8 = 6.0
+    expect(liveSemester([failing]).gpa).toBeCloseTo(6, 9);
+  });
+});
+

@@ -469,7 +469,7 @@ describe("regressions from the bug sweep", () => {
     const plan = planInput(course, 5);
     const v = evenSplit(plan, 5);
     const status = planStatus(plan, v, [], 5);
-    expect(status.belowMinimum).toEqual({ name: "Midterm", minGrade: 5 });
+    expect(status.belowMinimum).toEqual({ name: "Midterm", minGrade: 5, graded: false });
     expect(status.passes).toBe(false);
     expect(planMessage(status, null)).toMatch(/minimum on Midterm/);
     const ok = planStatus(plan, { M1: 5, M2: 5 }, [], 5);
@@ -483,6 +483,9 @@ describe("regressions from the bug sweep", () => {
     const status = planStatus(plan, evenSplit(plan, 5), [], 5);
     expect(status.passes).toBe(false);
     expect(status.reachesTarget).toBe(false);
+    expect(planMessage(status, null)).toBe("Not passed: below the 4.0 minimum on the Final.");
+    // The projection itself is the real weighted grade, not 0.
+    expect(status.projected).toBeGreaterThan(0);
     expect(computeCourse(course, 5).badge).toBe("Below minimum");
   });
 

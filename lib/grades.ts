@@ -343,6 +343,11 @@ export function weightsMessage(total: number): string {
 
 // ─── The main calculation ─────────────────────────────────────────────────
 
+/** "Not passed: below the 4.0 minimum on the Final exam". */
+export function belowMinimumHeadline(name: string, minGrade: number): string {
+  return `Not passed: below the ${formatGrade(minGrade)} minimum on ${/^the\b/i.test(name) ? "" : "the "}${name}`;
+}
+
 function minimumLine(rule: MinimumRule, prefix: string): string {
   return `${prefix} ${formatGrade(rule.minGrade)} on ${rule.name} (minimum required).`;
 }
@@ -392,17 +397,24 @@ export function computeResult(
     };
   }
 
-  // 2. A graded item is already below its required minimum.
+  // 2. A graded item is already below its required minimum: not passed, whatever the rest gives.
+  // The grade itself is still the real weighted grade (never 0.0) once everything is graded.
   const failedMin = minimums.find((m) => m.grade !== null && m.grade < m.minGrade - EPS);
   if (failedMin) {
+    const complete = R <= EPS && base.weightsOk;
     return {
       ...base,
       outcome: "below-minimum",
+      finalGrade: complete ? points / T : null,
+      maxPossible: (points + 10 * R) / T,
       badge: "Below minimum",
       tone: "bad",
-      headline: `Below the minimum on ${failedMin.name} (needs ${formatGrade(
-        failedMin.minGrade,
-      )}, got ${formatGrade(failedMin.grade!)}). You won't pass this course in the ordinary call.`,
+      headline: belowMinimumHeadline(failedMin.name, failedMin.minGrade),
+      details: [
+        `You got ${formatGrade(failedMin.grade!)} there.${
+          complete ? ` Your weighted grade is ${formatResult(points / T)}, but` : ""
+        } The minimum must be reached to pass, so the re-sit is your next chance.`,
+      ],
     };
   }
 
