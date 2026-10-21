@@ -124,11 +124,20 @@ Icons: `lucide-react` only, `strokeWidth` 1.75–2, `aria-hidden`. No emoji anyw
   right beside it from 640px), page title, the syllabus drop zone ("Import your syllabus PDFs",
   several at once), then smaller "or add a course by name" (core-input + core-submit, always
   visible), the import preview when PDFs are chosen, then the course list.
-- Import preview: one card per PDF with every field we read (name, code, credits, sessions,
-  semester, language, attendance, re-sit maximum, exam sessions, assessments), each editable,
-  "not found" (warn tint) on what's missing, "Weights add up to 100%" or a warning. A course
-  already in Courses (same code or name) offers "Update existing course" (default; its
-  assessments and grades are kept) or "Add as a new course". One primary "Add all courses (N)".
+- Import review: a panel (side sheet on desktop, bottom sheet on phones) with a sticky footer
+  ("Add 1 course" / "Add N courses" + Cancel, full width on phones; disabled only when a course
+  has no name, with the reason). Each course is a compact read-only summary: Title Case name,
+  "5 ECTS · 25 sessions · 26/27 · 1st semester · English", "Max absences: 5 of 25 · Re-sit max 8.0 ·
+  Midterm session 14 · Final session 25", assessments as a list (name · weight · min, parts
+  indented under their parent), "Weights add up to 100% ✓". "Edit" turns only that card into
+  fields; a card missing essentials (name, credits, assessments, weights ≠ 100%) opens as fields,
+  and missing facts read "Not found – add it". A course already in Courses offers "Update
+  existing course" (default; assessments and grades kept) or "Add as a new course".
+- After adding: the panel closes, a toast ("Management Control added"), the course opens and
+  scrolls into view with a one-time hint under the first "Add grade" (brand-coloured callout
+  pointing up, "Got it"); it goes away after "Got it" or your first grade.
+- Getting started (new students, under the title): "1. Import a syllabus · 2. Add your first
+  grade · 3. Set your target grade", ticking themselves; gone when all done or dismissed.
 - Open course: "Course details" facts under the result (credits, semester, max absences, exam
   sessions, re-sit, code, language). Courses added by name show "Import the syllabus to fill in
   weights and credits".

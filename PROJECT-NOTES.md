@@ -38,6 +38,10 @@ Link previews: `app/opengraph-image.tsx` (1200×630, fonts in `assets/fonts/`). 
   On phones the wordmark shrinks to the mark to make room.
 - **GPA details is a panel below the header, not a modal**, so the logout button (contract) stays
   usable while it is open.
+- **Import is a review, not a form:** summary cards in a panel with a sticky "Add N courses";
+  after adding, a toast, the course opens and a one-time hint points at "Add grade". Per-browser
+  conveniences (hint seen, checklist dismissed) use localStorage via `useLocalFlag`; user data
+  never does.
 - **Syllabus parsing** (`lib/syllabus.ts`) reads English and Spanish IE syllabi in the browser;
   PDFs are never uploaded and the professor's name and contact details are never read.
 

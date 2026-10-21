@@ -25,7 +25,9 @@ import { GradesList } from "./GradesList";
 import { type PlanState, hasPlannableRows, usePlanner } from "./usePlanner";
 import type { NewPart } from "./SplitForm";
 import { StatusBadge } from "./StatusBadge";
+import { TARGET_SET_FLAG } from "./GettingStarted";
 import { SyllabusBatchImport } from "./SyllabusBatchImport";
+import { useLocalFlag } from "./useLocalFlag";
 import { saveCourseCredits } from "./course-save";
 import {
   Card,
@@ -56,15 +58,22 @@ const sameNumber = (a: number, b: number) => Math.abs(a - b) < 0.001;
 export function CourseCard({
   course,
   initiallyOpen = false,
+  focusOn,
+  gradeHint,
   onUpdate,
   onDeleted,
 }: {
   course: Course;
   initiallyOpen?: boolean;
+  /** With initiallyOpen: put focus on the target picker or the first "Add grade" (from the checklist). */
+  focusOn?: "target" | "grade";
+  /** Show the one-time "tap Add grade" hint; called once it has done its job. */
+  gradeHint?: () => void;
   onUpdate: CourseUpdater;
   onDeleted: (id: string) => void;
 }) {
   const id = useId();
+  const panelId = `${id}-panel`;
   const [open, setOpen] = useState(initiallyOpen);
   // Parents whose parts you hid (parts show by default); remembered while the page is open.
   const [collapsedParts, setCollapsedParts] = useState<string[]>([]);
@@ -101,11 +110,31 @@ export function CourseCard({
     creditsRef.current?.focus({ preventScroll: true });
   }, [open, editingCredits]);
 
-  // A course just created from a syllabus opens and scrolls into view.
+  // The hint stays until you add your first grade here (or dismiss it).
+  const hasGrade = course.assessments.some((a) => a.grade !== null);
+  const hintOn = !!gradeHint && !hasGrade && course.assessments.length > 0;
+  useEffect(() => {
+    if (gradeHint && hasGrade) gradeHint();
+  }, [gradeHint, hasGrade]);
+
+  // A course just created from a syllabus opens and scrolls into view (to the hint, if shown).
   useEffect(() => {
     if (!initiallyOpen) return;
+    const target =
+      focusOn === "target"
+        ? document.querySelector<HTMLElement>(`[id="${id}-target"] button[aria-pressed="true"], [id="${id}-target"] button`)
+        : focusOn === "grade"
+          ? document.querySelector<HTMLElement>(`[id="${panelId}"] button[aria-label^="Add grade for"]`)
+          : null;
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.focus({ preventScroll: true });
+      return;
+    }
     toggleRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     toggleRef.current?.focus({ preventScroll: true });
+    // Only when it opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initiallyOpen]);
 
   const result = useMemo(
@@ -118,11 +147,22 @@ export function CourseCard({
 
   const supabase = () => createClient();
 
+  const [, markTargetSet] = useLocalFlag(TARGET_SET_FLAG);
   async function setTarget(value: number) {
+    markTargetSet();
+    const picker = document.getElementById(`${id}-target`);
+    const before = picker?.getBoundingClientRect().top;
     const { ok } = await save(() =>
       supabase().from("courses").update({ target_grade: value }).eq("id", course.id).select("id").single(),
     );
-    if (ok) onUpdate(course.id, (c) => ({ ...c, target_grade: value }));
+    if (ok) {
+      onUpdate(course.id, (c) => ({ ...c, target_grade: value }));
+      // The result above may change height: scroll by the same amount so the picker stays put.
+      requestAnimationFrame(() => {
+        const after = picker?.getBoundingClientRect().top;
+        if (before !== undefined && after !== undefined && Math.abs(after - before) > 1) window.scrollBy(0, after - before);
+      });
+    }
     return ok;
   }
 
@@ -244,7 +284,6 @@ export function CourseCard({
     if (ok) onDeleted(course.id);
   }
 
-  const panelId = `${id}-panel`;
   const credits = course.credits !== null ? `${formatWeight(course.credits)} ECTS` : null;
 
   // The gauge follows your plan while there's something left to plan; otherwise the final grade.
@@ -347,11 +386,19 @@ export function CourseCard({
         </div>
       )}
 
+      {/* Always mounted: re-opening the course must not replay an old "Saved". */}
+      <div className={open ? "" : "px-4 sm:px-6 [&:empty]:hidden"}>
+        <SaveIndicator status={status} />
+      </div>
+
       {open && (
         <div id={panelId} className="expand-in">
           <div className="space-y-10 border-t border-line px-4 pb-6 pt-5 sm:px-6">
-            <SaveIndicator status={status} />
-            <ResultPanel result={result} gauge={gauge} target={course.target_grade} weightItems={weightItems} />
+            <div className="space-y-5">
+              <ResultPanel result={result} gauge={gauge} target={course.target_grade} weightItems={weightItems} />
+              {/* Right under the gauge: where the target shows, and where a change is seen at once. */}
+              <TargetPicker idPrefix={`${id}-target`} target={course.target_grade} onSave={setTarget} onChosen={markTargetSet} />
+            </div>
             <CourseFacts
               course={course}
               editing={editingCredits}
@@ -429,6 +476,7 @@ export function CourseCard({
                 )}
                 <GradesList
                   idPrefix={id}
+                  hint={hintOn ? gradeHint : undefined}
                   assessments={course.assessments}
                   target={course.target_grade}
                   plan={plan}
@@ -483,8 +531,6 @@ export function CourseCard({
               )}
             </section>
 
-            <TargetPicker target={course.target_grade} onSave={setTarget} />
-
             <div className="border-t border-line pt-5">
               <DeleteCourse name={course.name} onConfirm={deleteCourse} />
             </div>
@@ -496,11 +542,16 @@ export function CourseCard({
 }
 
 function TargetPicker({
+  idPrefix,
   target,
   onSave,
+  onChosen,
 }: {
+  idPrefix: string;
   target: number;
   onSave: (value: number) => Promise<boolean>;
+  /** Any explicit choice, even the target it already had (ticks "Set your target grade"). */
+  onChosen: () => void;
 }) {
   const id = useId();
   const isPreset = TARGETS.some((t) => sameNumber(t.value, target));
@@ -522,7 +573,7 @@ function TargetPicker({
   }
 
   return (
-    <fieldset>
+    <fieldset id={idPrefix} className="scroll-mt-28">
       <legend id={`${id}-legend`} className={sectionHeading}>
         Target grade
       </legend>
@@ -532,6 +583,7 @@ function TargetPicker({
           options={TARGETS}
           isActive={(v) => sameNumber(v, target)}
           onSelect={(v) => {
+            onChosen();
             setCustom("");
             setError(null);
             if (!sameNumber(v, target)) onSave(v);

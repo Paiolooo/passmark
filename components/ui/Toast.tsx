@@ -41,3 +41,26 @@ export function Toast({ status }: { status: ToastState }) {
     </div>
   );
 }
+
+/** A short confirmation ("Management Control added"), bottom centre, gone after a few seconds. */
+export function MessageToast({ message }: { message: { text: string; id: number } | null }) {
+  const [gone, setGone] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(() => setGone(message.id), 2500);
+    return () => clearTimeout(timer);
+  }, [message]);
+
+  const show = message !== null && gone !== message.id;
+  return (
+    <div role="status" aria-live="polite" className="pointer-events-none fixed bottom-5 left-1/2 z-50 -translate-x-1/2">
+      {show && (
+        <p key={message.id} className="toast flex items-center gap-2 rounded-full bg-ink px-4 py-2.5 text-sm font-medium text-paper shadow-pop">
+          <Check aria-hidden="true" size={16} strokeWidth={2.5} />
+          {message.text}
+        </p>
+      )}
+    </div>
+  );
+}

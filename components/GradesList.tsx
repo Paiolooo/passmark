@@ -50,6 +50,7 @@ export function GradesList({
   actions,
   collapsed,
   onToggleCollapsed,
+  hint,
 }: {
   idPrefix: string;
   assessments: Assessment[];
@@ -60,6 +61,8 @@ export function GradesList({
   /** Parents whose parts are hidden (kept by the course while the page is open). */
   collapsed: string[];
   onToggleCollapsed: (id: string) => void;
+  /** Show the one-time hint under the first "Add grade"; called on "Got it". */
+  hint?: () => void;
 }) {
   const { input, basis, single, pinned, values, moving, status } = usePlanner(assessments, target, plan);
   const groups = groupAssessments(assessments);
@@ -291,9 +294,19 @@ export function GradesList({
     );
   }
 
+  // The first row you can add a grade to (shown parts only): the hint goes right under it.
+  const firstOpen = groups
+    .flatMap(({ assessment: a, parts }) => (parts.length === 0 ? [a] : collapsed.includes(a.id) ? [] : parts))
+    .find((x) => x.grade === null)?.id;
+  const hintAfter = (a: Assessment) =>
+    hint && a.id === firstOpen ? [<GradeHint key="grade-hint" onDismiss={hint} />] : [];
+
   return (
     <div>
-      <p className="text-sm text-ink-2">Drag a slider to plan · Add a grade when you get one back.</p>
+      <p className="text-sm text-ink-2">
+        Plans show what you still need for your target and update as your grades come in. Drag a slider to try
+        others.
+      </p>
 
       {input.rows.length > 0 && <ProjectedBar status={status} message={planMessage(status, moving)} target={target} />}
       <p aria-live="polite" className="sr-only">
@@ -302,7 +315,7 @@ export function GradesList({
 
       <ul className="mt-1 divide-y divide-line">
         {groups.flatMap(({ assessment: a, parts }) => {
-          if (parts.length === 0) return [leaf(a, null, null, null)];
+          if (parts.length === 0) return [leaf(a, null, null, null), ...hintAfter(a)];
 
           const bestOf = effectiveBestOf(a, parts);
           const check = partsWeightCheck(a, parts);
@@ -319,7 +332,7 @@ export function GradesList({
           // Parts are rows of their own, right after the parent; hidden only by the parent's chevron.
           const rows = [parentRow(a, parts)];
           if (!collapsed.includes(a.id)) {
-            rows.push(...parts.map((p) => leaf(p, a, bestOf, countedIds)));
+            rows.push(...parts.flatMap((p) => [leaf(p, a, bestOf, countedIds), ...hintAfter(p)]));
             if (bestOf === null && !check.ok)
               rows.push(
                 <li key={`${a.id}-check`} className="py-2 pl-4 text-sm text-warn sm:pl-6">
@@ -334,21 +347,42 @@ export function GradesList({
   );
 }
 
+/** One-time tip under the first "Add grade", after your first import. Optional: nothing waits for it. */
+function GradeHint({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <li role="note" className="relative !border-t-0 pb-3">
+      {/* Points up at the "Add grade" button above. */}
+      <span aria-hidden="true" className="absolute -top-1.5 left-6 h-3 w-3 rotate-45 border-l border-t border-brand/30 bg-brand-tint sm:left-auto sm:right-28" />
+      <div className="relative flex items-center gap-3 rounded-[var(--radius-md)] border border-brand/30 bg-brand-tint px-3 py-2 text-sm text-brand-ink">
+        <p className="min-w-0 flex-1">
+          <span className="font-semibold">Tip:</span> when you get a grade, tap Add grade. PassMark updates what you
+          need and your GPA.
+        </p>
+        <button type="button" onClick={onDismiss} className="min-h-11 shrink-0 rounded-full px-2 text-xs font-semibold underline-offset-4 hover:underline">
+          Got it
+        </button>
+      </div>
+    </li>
+  );
+}
+
 /** Projected grade while you plan; on phones it sticks to the top as you scroll the rows. */
 function ProjectedBar({ status, message, target }: { status: PlanStatus; message: string | null; target: number }) {
   return (
-    <div className="sticky top-0 z-30 -mx-4 mt-3 border-b border-line bg-surface/95 px-4 py-2.5 backdrop-blur sm:static sm:mx-0 sm:rounded-[var(--radius-md)] sm:border sm:bg-sunken sm:px-4 sm:py-3">
+    <div className="sticky top-0 z-30 -mx-4 mt-3 border-b border-line bg-surface/95 px-4 py-1.5 backdrop-blur sm:static sm:mx-0 sm:rounded-[var(--radius-md)] sm:border sm:bg-sunken sm:px-4 sm:py-3">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <p data-testid="projected-grade" className="flex items-baseline gap-2.5">
           <span className="text-sm font-medium text-ink-2">Projected final grade</span>
-          <AnimatedNumber value={status.projected} format={formatResult} className="text-[1.75rem] font-semibold leading-none tracking-[-0.03em] text-ink" />
+          <AnimatedNumber value={status.projected} format={formatResult} className="text-[1.375rem] font-semibold leading-none tracking-[-0.03em] text-ink sm:text-[1.75rem]" />
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          {status.reachesTarget ? (
-            <StatusPill tone="good">Reaches your target</StatusPill>
-          ) : (
-            <StatusPill tone="warn">Below your {formatGrade(target)} target</StatusPill>
-          )}
+          {/* With the default target (a pass), one pill says it all. */}
+          {Math.abs(target - PASS_GRADE) > 0.001 &&
+            (status.reachesTarget ? (
+              <StatusPill tone="good">Reaches your target</StatusPill>
+            ) : (
+              <StatusPill tone="warn">Below your {formatGrade(target)} target</StatusPill>
+            ))}
           <StatusPill tone={status.passes ? "good" : "bad"}>
             {status.passes ? "Pass" : status.belowMinimum ? "Below minimum" : `Below ${formatGrade(PASS_GRADE)}`}
           </StatusPill>

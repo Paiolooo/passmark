@@ -15,10 +15,13 @@ import { type GpaCourse, findCredits, gpaSummary, nameKey } from "@/lib/gpa";
 import { type Tone, computeCourse, summarize } from "@/lib/grades";
 import type { Reference } from "@/lib/ranking";
 import { CourseCard } from "./CourseCard";
+import { GettingStarted } from "./GettingStarted";
 import { saveCourseCredits } from "./course-save";
 import { GpaBox } from "./gpa/GpaBox";
 import { type GpaDetailsHandle, GpaDetails } from "./gpa/GpaDetails";
 import { Sheet } from "./ui/Sheet";
+import { MessageToast } from "./ui/Toast";
+import { useLocalFlag } from "./useLocalFlag";
 import { SyllabusBatchImport } from "./SyllabusBatchImport";
 import { SyllabusDropZone } from "./SyllabusDropZone";
 import { StatusPill, dangerButton, errorBox, fieldClass, secondaryButton } from "./ui";
@@ -57,6 +60,14 @@ export function CoursesApp({
   const [openedId, setOpenedId] = useState<string | null>(null);
   const [importWarning, setImportWarning] = useState<string | null>(null);
   const [importFiles, setImportFiles] = useState<File[] | null>(null);
+  const [toast, setToast] = useState<{ text: string; id: number } | null>(null);
+  const dropZone = useRef<HTMLButtonElement>(null);
+  // The checklist opens a course at the right place (its target, or its first "Add grade").
+  const [focus, setFocus] = useState<{ courseId: string; what: "target" | "grade"; n: number } | null>(null);
+  const goTo = (courseId: string, what: "target" | "grade") => setFocus((f) => ({ courseId, what, n: (f?.n ?? 0) + 1 }));
+  const firstOpenCourse = courses.find((c) => c.assessments.some((a) => a.grade === null));
+  // The one-time "tap Add grade" hint, after your first import.
+  const [hintSeen, markHintSeen] = useLocalFlag("passmark.hint.add-grade");
   const busy = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -169,7 +180,8 @@ export function CoursesApp({
     <main className="mx-auto w-full max-w-[880px] flex-1 px-4 pb-24 pt-4 sm:px-6 sm:pt-12">
       {/* Phones: the GPA is a slim bar above the title. Desktop: a box at the top right. */}
       <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-6">
-        <div className="sm:col-start-2 sm:row-start-1">
+        {/* A brand-new student has nothing for it yet: the first screen is about the syllabus. */}
+        <div className={`sm:col-start-2 sm:row-start-1 ${courses.length === 0 && !gpa.hasHistory ? "hidden" : ""}`}>
           <GpaBox
             summary={gpa}
             onOpen={() => setGpaOpen(true)}
@@ -185,11 +197,19 @@ export function CoursesApp({
         </header>
       </div>
 
+      <GettingStarted
+        courses={courses}
+        onImport={() => dropZone.current?.click()}
+        onGrade={firstOpenCourse ? () => goTo(firstOpenCourse.id, "grade") : undefined}
+        onTarget={courses[0] ? () => goTo(courses[0].id, "target") : undefined}
+      />
+
       <section aria-labelledby="add-title" className="mt-6 sm:mt-8">
         <h2 id="add-title" className="sr-only">
           Add courses
         </h2>
         <SyllabusDropZone
+          buttonRef={dropZone}
           onFiles={(files) => {
             setImportWarning(null);
             setImportFiles(files);
@@ -238,23 +258,26 @@ export function CoursesApp({
       </section>
 
       {importFiles && (
-        <div className="mt-6">
-          <SyllabusBatchImport
-            files={importFiles}
-            courses={courses}
-            onSaved={(saved, warning) => {
-              setImportFiles(null);
-              setImportWarning(warning);
-              const fresh = saved.filter((c) => !courses.some((x) => x.id === c.id));
-              setCourses((prev) => [...fresh, ...prev.map((c) => saved.find((s) => s.id === c.id) ?? c)]);
-              if (fresh[0]) setOpenedId(fresh[0].id);
-              setAnnouncement(
-                `${saved.length} course${saved.length === 1 ? "" : "s"} saved from your syllabus${saved.length === 1 ? "" : "es"}.`,
-              );
-            }}
-            onCancel={() => setImportFiles(null)}
-          />
-        </div>
+        <SyllabusBatchImport
+          files={importFiles}
+          courses={courses}
+          onSaved={(saved, warning) => {
+            setImportFiles(null);
+            setImportWarning(warning);
+            const fresh = saved.filter((c) => !courses.some((x) => x.id === c.id));
+            setCourses((prev) => [...fresh, ...prev.map((c) => saved.find((s) => s.id === c.id) ?? c)]);
+            // Open (and scroll to) the course you just added.
+            if (saved[0]) setOpenedId(saved[0].id);
+            setToast({
+              id: Date.now(),
+              text:
+                saved.length === 1
+                  ? `${saved[0].name} ${fresh.length ? "added" : "updated"}`
+                  : `${saved.length} courses ${fresh.length === saved.length ? "added" : "saved"}`,
+            });
+          }}
+          onCancel={() => setImportFiles(null)}
+        />
       )}
 
       {importWarning && (
@@ -291,9 +314,18 @@ export function CoursesApp({
           <ul className="space-y-4">
             {courses.map((course) => (
               <CourseCard
-                key={course.id}
+                // A course just imported or updated opens fresh (it may already be on screen).
+                key={
+                  focus?.courseId === course.id
+                    ? `${course.id}-focus-${focus.n}`
+                    : course.id === openedId
+                      ? `${course.id}-opened`
+                      : course.id
+                }
                 course={course}
-                initiallyOpen={course.id === openedId}
+                initiallyOpen={course.id === openedId || focus?.courseId === course.id}
+                focusOn={focus?.courseId === course.id ? focus.what : undefined}
+                gradeHint={course.id === openedId && !hintSeen ? markHintSeen : undefined}
                 onUpdate={updateCourse}
                 onDeleted={removeCourse}
               />
@@ -302,6 +334,7 @@ export function CoursesApp({
         )}
       </section>
 
+      <MessageToast message={toast} />
       <Sheet open={gpaOpen} onClose={() => setGpaOpen(false)} title="GPA details">
         <GpaDetails
           ref={details}

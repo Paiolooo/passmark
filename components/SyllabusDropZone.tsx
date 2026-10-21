@@ -7,7 +7,16 @@ import { useEffect, useId, useRef, useState } from "react";
  * The main way to add courses: drop (or choose) one or more syllabus PDFs, a whole semester at
  * once. The PDFs are read on this device; nothing is uploaded.
  */
-export function SyllabusDropZone({ onFiles, compact = false }: { onFiles: (files: File[]) => void; compact?: boolean }) {
+export function SyllabusDropZone({
+  onFiles,
+  compact = false,
+  buttonRef,
+}: {
+  onFiles: (files: File[]) => void;
+  compact?: boolean;
+  /** The "choose files" button, for other places that start an import. */
+  buttonRef?: React.Ref<HTMLButtonElement>;
+}) {
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
@@ -66,6 +75,7 @@ export function SyllabusDropZone({ onFiles, compact = false }: { onFiles: (files
         }}
       />
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => input.current?.click()}
         aria-describedby={`${id}-hint`}

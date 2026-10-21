@@ -15,11 +15,14 @@ export function Sheet({
   open,
   onClose,
   title,
+  footer,
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
+  /** Pinned to the bottom of the panel, always visible (e.g. the main action). */
+  footer?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const id = useId();
@@ -89,6 +92,9 @@ export function Sheet({
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-10 pt-4 sm:px-6">{children}</div>
+        {footer && (
+          <div className="border-t border-line bg-surface px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-6">{footer}</div>
+        )}
       </div>
     </div>,
     document.body,

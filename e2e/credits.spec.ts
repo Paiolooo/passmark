@@ -22,10 +22,10 @@ test("credits from the syllabus are information, editable only via Edit", async 
   test.skip(!MC, "no syllabi in syllabi-test/");
   await page.goto("/app");
   await page.getByTestId("syllabus-files").setInputFiles(`syllabi-test/${MC}`);
-  const preview = page.getByRole("region", { name: "Check your courses" });
-  await preview.getByRole("button", { name: "Add course", exact: true }).click({ timeout: 50_000 });
+  const preview = page.getByRole("dialog", { name: "Your course" });
+  await preview.getByRole("button", { name: "Add 1 course" }).click({ timeout: 50_000 });
   await expect(preview).toHaveCount(0, { timeout: 30_000 });
-  const course = await openCourse(page, "MANAGEMENT CONTROL");
+  const course = await openCourse(page, "Management Control");
   const details = course.getByRole("region", { name: "Course details" });
   await expect(details).toContainText("5 ECTS · from your syllabus");
   await expect(details).toContainText("Details from your syllabus.");
@@ -45,7 +45,7 @@ test("credits from the syllabus are information, editable only via Edit", async 
   await expect(details).toContainText("6 ECTS · entered by you");
   if (await storesSource(account.db)) {
     await page.reload();
-    await expect((await openCourse(page, "MANAGEMENT CONTROL")).getByRole("region", { name: "Course details" })).toContainText(
+    await expect((await openCourse(page, "Management Control")).getByRole("region", { name: "Course details" })).toContainText(
       "6 ECTS · entered by you",
     );
   }
@@ -92,8 +92,8 @@ test("no match: a small prompt to import the syllabus, or enter them manually", 
 test("importing a transcript fills in credits of courses you added by name", async ({ page }) => {
   test.skip(!existsSync("transcript-test/transcript.pdf"), "no transcript in transcript-test/");
   // A course in progress on the transcript, added here by name only (name read from the PDF itself).
-  await page.goto("/app");
-  await page.getByTestId("gpa-box").getByRole("button", { name: /GPA details|Import transcript/ }).first().click();
+  // A brand-new account has no GPA box yet: /gpa opens GPA details directly.
+  await page.goto("/gpa");
   const sheet = page.getByRole("dialog", { name: "GPA details" });
   const chooser = page.waitForEvent("filechooser");
   await sheet.getByRole("button", { name: "Import transcript PDF" }).first().click();

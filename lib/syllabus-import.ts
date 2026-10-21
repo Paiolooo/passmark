@@ -181,7 +181,7 @@ export function draftFromSyllabus(s: Syllabus, fileName: string): CourseDraft {
   return {
     key: newDraftKey(),
     fileName,
-    name: s.course,
+    name: titleCase(s.course),
     code: text(s.code),
     credits: text(s.credits),
     sessions: text(s.sessions),
@@ -276,4 +276,57 @@ export function draftTotal(rows: DraftRow[]): number {
     const w = parseWeight(r.weight);
     return sum + (w.ok && w.value !== null ? w.value : 0);
   }, 0);
+}
+
+// ─── Review summary ───────────────────────────────────────────────────────
+
+const SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "but", "by", "for", "in", "of", "on", "or", "the", "to", "with", "y", "e", "de", "del", "la", "las", "el", "los", "en"]);
+const KEEP_UPPER = /^(I{1,3}|IV|V|VI{1,3}|IX|X|AI|ESG|HR|IT|UX|UI|EU|US|UK|BBA|MBA|ECTS)$/;
+
+/** "MANAGEMENT CONTROL" → "Management Control"; "STRATEGIES FOR COMPETING IN…" keeps "for", "in" small. Mixed case is left alone. */
+export function titleCase(name: string): string {
+  const s = name.trim();
+  if (!s || /[a-zà-ÿ]/.test(s)) return s;
+  return s
+    .split(/(\s+|-|\/)/)
+    .map((w, i) => {
+      if (/^(\s+|-|\/)$/.test(w) || !w) return w;
+      if (KEEP_UPPER.test(w) || /\d/.test(w)) return w;
+      const lower = w.toLowerCase();
+      if (i > 0 && SMALL_WORDS.has(lower)) return lower;
+      return lower[0].toUpperCase() + lower.slice(1);
+    })
+    .join("");
+}
+
+/** A course whose essentials are missing or off opens straight in edit mode. */
+export function needsAttention(d: CourseDraft): boolean {
+  const total = draftTotal(d.rows);
+  return !d.name.trim() || !d.credits.trim() || d.rows.length === 0 || Math.abs(total - 100) >= 0.005;
+}
+
+/** "5 ECTS · 25 sessions · 26/27 · 1st semester · English" (only what is known). */
+export function summaryMeta(d: CourseDraft): string {
+  return [
+    d.credits.trim() && `${d.credits.trim()} ECTS`,
+    d.sessions.trim() && `${d.sessions.trim()} sessions`,
+    d.semesterLabel.trim(),
+    d.language.trim(),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** "Max absences: 5 of 25 · Re-sit max 8.0 · Midterm session 14 · Final session 25" (only what is known). */
+export function summaryRules(d: CourseDraft, absences: number | null): string {
+  const resit = parseDecimal(d.resitMax);
+  return [
+    absences !== null && d.sessions.trim() && `Max absences: ${absences} of ${d.sessions.trim()}`,
+    resit !== null && `Re-sit max ${formatGrade(resit)}`,
+    ...d.examSessions
+      .filter((e) => e.session.trim())
+      .map((e) => `${/final/i.test(e.name) ? "Final" : "Midterm"} session ${e.session.trim()}`),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }

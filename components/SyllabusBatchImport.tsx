@@ -1,21 +1,28 @@
 "use client";
 
-import { AlertTriangle, FileText, LoaderCircle, Plus, Trash2, X } from "lucide-react";
+import { AlertTriangle, CircleCheck, FileText, LoaderCircle, PenLine, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { Course } from "@/lib/courses";
 import { checkPdfFile, readPdfTextItems } from "@/lib/pdf-text";
 import { maxAbsences, parseSyllabus } from "@/lib/syllabus";
+import { formatWeight, parseWeight } from "@/lib/grades";
 import {
   type CourseDraft,
   buildCourseImport,
   draftFromSyllabus,
+  draftTotal,
   findDuplicate,
   missingFields,
+  needsAttention,
   newDraftKey,
+  partsFor,
+  summaryMeta,
+  summaryRules,
 } from "@/lib/syllabus-import";
 import { AssessmentRowsEditor } from "./AssessmentRowsEditor";
 import { saveSyllabusImport } from "./syllabus-save";
-import { Skeleton, cardClass, errorBox, inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "./ui";
+import { Skeleton, errorBox, inputClass, labelClass, linkButton, primaryButton, secondaryButton } from "./ui";
+import { Sheet } from "./ui/Sheet";
 
 /** A syllabus reads in about a second; never leave a card spinning forever. */
 const READ_TIMEOUT_MS = 45_000;
@@ -60,8 +67,6 @@ export function SyllabusBatchImport({
   onSaved: (saved: Course[], warning: string | null) => void;
   onCancel: () => void;
 }) {
-  const id = useId();
-  const heading = useRef<HTMLHeadingElement>(null);
   const more = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [saving, setSaving] = useState(false);
@@ -113,10 +118,6 @@ export function SyllabusBatchImport({
   const reading = items.some((it) => it.status === "reading");
   const ready = items.filter((it): it is Extract<Item, { status: "ready" }> => it.status === "ready");
 
-  useEffect(() => {
-    if (!reading && items.length > 0) heading.current?.focus();
-  }, [reading, items.length]);
-
   const setDraft = (key: number, patch: Partial<CourseDraft>) =>
     setItems((prev) =>
       prev.map((it) => (it.key === key && it.status === "ready" ? { ...it, draft: { ...it.draft, ...patch }, error: undefined } : it)),
@@ -162,43 +163,66 @@ export function SyllabusBatchImport({
     setError(`${failed.size} course${failed.size === 1 ? "" : "s"} couldn't be saved. Check the message on ${failed.size === 1 ? "it" : "each"} and try again.`);
   }
 
-  const action = target ? "Save" : ready.length === 1 ? "Add course" : "Add all courses";
+  const unnamed = ready.some((it) => !it.draft.name.trim());
+  const action = target
+    ? "Update this course"
+    : `Add ${ready.length || ""} course${ready.length === 1 ? "" : "s"}`.replace("  ", " ");
+  const title = target ? `Syllabus for ${target.name}` : `Your ${items.length === 1 ? "course" : "courses"}`;
 
-  return (
-    <section aria-labelledby={`${id}-title`} className={`${cardClass} space-y-5 p-4 shadow-lift sm:p-6`}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 ref={heading} tabIndex={-1} id={`${id}-title`} className="type-title text-ink focus:outline-none">
-            {reading ? "Reading your syllabi…" : target ? `Check what we read for ${target.name}` : "Check your courses"}
-          </h2>
-          <p className="mt-1 text-sm text-ink-2">
-            Your PDFs stay on this device. Fix anything that looks off, then {target ? "save" : "add them all at once"}.
+  const footer = (
+    <div className="space-y-2">
+      {unnamed && !reading && (
+        <p className="flex items-center gap-1.5 text-sm text-warn">
+          <AlertTriangle aria-hidden="true" size={15} />
+          Add a name to every course to continue.
+        </p>
+      )}
+      <div aria-live="assertive">
+        {error && (
+          <p role="alert" className="text-sm text-bad">
+            {error}
           </p>
-        </div>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={onCancel}
-          disabled={saving}
-          aria-label="Cancel import"
-          className="-mr-2 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink-2 hover:bg-sunken hover:text-ink"
+          onClick={saveAll}
+          disabled={saving || reading || ready.length === 0 || unnamed}
+          aria-busy={saving}
+          className={`${primaryButton} flex-1 sm:flex-none`}
         >
-          <X aria-hidden="true" size={20} />
+          {saving ? "Adding…" : reading ? "Reading your PDFs…" : action}
+        </button>
+        <button type="button" onClick={onCancel} disabled={saving} className={secondaryButton}>
+          Cancel
         </button>
       </div>
+    </div>
+  );
+
+  return (
+    <Sheet open onClose={() => !saving && onCancel()} title={title} footer={footer}>
+      <p className="text-sm text-ink-2">
+        {reading
+          ? "Reading on your device. Nothing is uploaded."
+          : "This is what your syllabus says. Check it, then add it. You can change anything later."}
+      </p>
       <p aria-live="polite" className="sr-only">
         {reading ? "" : `${ready.length} syllabus${ready.length === 1 ? "" : "es"} read.`}
       </p>
 
-      <ul className="space-y-4">
+      <ul className="mt-4 space-y-4">
         {items.map((it) => (
           <li key={it.key}>
             {it.status === "reading" ? (
-              <div className="rounded-[var(--radius-md)] border border-line p-4">
+              <div className="rounded-[var(--radius-md)] border border-line bg-surface p-4">
                 <p className="flex items-center gap-2 text-sm text-ink-2">
                   <LoaderCircle aria-hidden="true" size={16} className="animate-spin text-brand" />
                   Reading {it.fileName}…
                 </p>
-                <Skeleton className="mt-3 h-11 w-full" />
+                <Skeleton className="mt-3 h-6 w-2/3" />
+                <Skeleton className="mt-2 h-4 w-full" />
               </div>
             ) : it.status === "failed" ? (
               <div className="flex items-start justify-between gap-3 rounded-[var(--radius-md)] border border-bad-line bg-bad-tint p-4">
@@ -210,7 +234,7 @@ export function SyllabusBatchImport({
                 </button>
               </div>
             ) : (
-              <CourseDraftCard
+              <CourseItem
                 draft={it.draft}
                 error={it.error}
                 courses={courses}
@@ -229,7 +253,7 @@ export function SyllabusBatchImport({
       </ul>
 
       {!target && (
-        <div>
+        <div className="mt-3">
           <input
             ref={more}
             type="file"
@@ -249,37 +273,179 @@ export function SyllabusBatchImport({
           </button>
         </div>
       )}
+    </Sheet>
+  );
+}
 
-      <div aria-live="assertive">
-        {error && (
-          <p role="alert" className={errorBox}>
-            {error}
-          </p>
-        )}
-      </div>
+/** One course: a short summary; "Edit" (or anything essential missing) turns it into fields. */
+function CourseItem(props: {
+  draft: CourseDraft;
+  error?: string;
+  courses: Course[];
+  target: Course | null;
+  sameAsAnother: boolean;
+  onChange: (patch: Partial<CourseDraft>) => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(() => needsAttention(props.draft));
+  // A course that couldn't be saved shows its fields, with the reason.
+  if (editing || props.error) return <CourseDraftCard {...props} onDone={() => setEditing(false)} />;
+  return <CourseSummary {...props} onEdit={() => setEditing(true)} />;
+}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={saveAll}
-          disabled={saving || reading || ready.length === 0}
-          aria-busy={saving}
-          className={primaryButton}
-        >
-          {saving ? "Saving…" : ready.length > 1 ? `${action} (${ready.length})` : action}
-        </button>
-        <button type="button" onClick={onCancel} disabled={saving} className={secondaryButton}>
-          Cancel
-        </button>
+/** The duplicate question: update the course you already have, or add a copy. */
+function DuplicateChoice({ draft: d, duplicate, onChange }: { draft: CourseDraft; duplicate: Course; onChange: (p: Partial<CourseDraft>) => void }) {
+  const id = useId();
+  return (
+    <fieldset className="mt-3 rounded-[var(--radius-sm)] border border-warn-line bg-warn-tint p-3">
+      <legend className="sr-only">Already in your courses</legend>
+      <p className="flex items-start gap-2 text-sm font-medium text-warn">
+        <AlertTriangle aria-hidden="true" size={16} className="mt-0.5 shrink-0" />
+        “{duplicate.name}” is already in your courses.
+      </p>
+      <div className="mt-1 flex flex-wrap gap-x-5">
+        {[
+          { value: duplicate.id, label: "Update existing course" },
+          { value: "new", label: "Add as a new course" },
+        ].map((o) => (
+          <label key={o.value} className="flex min-h-11 items-center gap-2 text-sm text-ink">
+            <input
+              type="radio"
+              name={`${id}-target`}
+              checked={d.target === o.value}
+              onChange={() => onChange({ target: o.value })}
+              className="h-5 w-5 accent-[var(--brand)]"
+            />
+            {o.label}
+          </label>
+        ))}
       </div>
-    </section>
+    </fieldset>
+  );
+}
+
+function CourseSummary({
+  draft: d,
+  courses,
+  target,
+  sameAsAnother,
+  onChange,
+  onRemove,
+  onEdit,
+}: {
+  draft: CourseDraft;
+  courses: Course[];
+  target: Course | null;
+  sameAsAnother: boolean;
+  onChange: (patch: Partial<CourseDraft>) => void;
+  onRemove: () => void;
+  onEdit: () => void;
+}) {
+  const id = useId();
+  const duplicate = target ? null : findDuplicate(d, courses);
+  const existing = d.target === "new" ? null : courses.find((c) => c.id === d.target) ?? target;
+  const keepsAssessments = !!existing && existing.assessments.length > 0;
+  const absences = maxAbsences(
+    d.sessions.trim() ? Number(d.sessions) : null,
+    d.attendancePct.trim() ? Number(d.attendancePct.replace(",", ".").replace("%", "")) : null,
+  );
+  const meta = summaryMeta(d);
+  const rules = summaryRules(d, absences);
+  const missing = missingFields(d).filter((f) => f !== "name" && f !== "assessments");
+  const total = draftTotal(d.rows);
+
+  return (
+    <article aria-labelledby={`${id}-name`} className="rounded-[var(--radius-md)] border border-line bg-surface p-4 shadow-card sm:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <h3 id={`${id}-name`} className="type-title wrap-anywhere text-ink">
+          {d.name}
+        </h3>
+        <div className="-mr-2 -mt-2 flex shrink-0 items-center">
+          <button type="button" onClick={onEdit} className={`${linkButton} text-sm`}>
+            <PenLine aria-hidden="true" size={15} />
+            Edit<span className="sr-only"> {d.name}</span>
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label={`Don't import ${d.name}`}
+            className="flex h-11 w-11 items-center justify-center rounded-full text-ink-3 hover:bg-bad-tint hover:text-bad"
+          >
+            <Trash2 aria-hidden="true" size={17} />
+          </button>
+        </div>
+      </div>
+      {meta && <p className="num mt-1 text-sm text-ink-2">{meta}</p>}
+      {rules && <p className="num mt-0.5 text-sm text-ink-2">{rules}</p>}
+      {missing.length > 0 && (
+        <button type="button" onClick={onEdit} className="mt-1.5 rounded-sm text-left text-sm font-medium text-warn underline underline-offset-4">
+          Not found – add it: {missing.join(", ")}
+        </button>
+      )}
+
+      {duplicate && <DuplicateChoice draft={d} duplicate={duplicate} onChange={onChange} />}
+      {sameAsAnother && (
+        <p className="mt-2 flex items-center gap-2 text-sm text-warn">
+          <AlertTriangle aria-hidden="true" size={16} />
+          Another PDF here is the same course. Remove one of them.
+        </p>
+      )}
+
+      {keepsAssessments ? (
+        <p className="mt-3 text-sm text-ink-2">
+          Your assessments and grades in “{existing!.name}” are kept; only the course details are filled in.
+        </p>
+      ) : (
+        <>
+          <ul aria-label={`Assessments of ${d.name}`} className="mt-3 divide-y divide-line border-y border-line text-sm">
+            {d.rows.map((r) => {
+              const w = parseWeight(r.weight);
+              const weight = w.ok && w.value !== null ? w.value : 0;
+              const { parts, bestOf } = partsFor(r, weight);
+              return (
+                <li key={r.key} className="py-2">
+                  <div className="flex items-baseline gap-3">
+                    <span className="min-w-0 flex-1 text-ink">{r.name}</span>
+                    <span className="num shrink-0 text-ink-2">
+                      {formatWeight(weight)}%{r.min.trim() && <span className="text-ink-3"> · min {r.min.trim()}</span>}
+                    </span>
+                  </div>
+                  {parts.length > 0 && (
+                    <ul className="mt-1 space-y-0.5 border-l-2 border-line pl-3">
+                      {bestOf !== null && <li className="text-xs text-ink-3">The best {bestOf} of {parts.length} count</li>}
+                      {parts.map((p) => (
+                        <li key={p.name} className="flex items-baseline gap-3 text-ink-2">
+                          <span className="min-w-0 flex-1">{p.name}</span>
+                          <span className="num shrink-0">{formatWeight(p.weight)}%</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          {Math.abs(total - 100) < 0.005 ? (
+            <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-brand-ink">
+              <CircleCheck aria-hidden="true" size={16} strokeWidth={2.25} />
+              Weights add up to 100% ✓
+            </p>
+          ) : (
+            <button type="button" onClick={onEdit} className="mt-2 flex items-center gap-1.5 text-left text-sm font-medium text-warn underline underline-offset-4">
+              <AlertTriangle aria-hidden="true" size={16} />
+              <span className="num">Weights add up to {formatWeight(total)}%. Check them</span>
+            </button>
+          )}
+        </>
+      )}
+    </article>
   );
 }
 
 /** "not found" next to a field the PDF didn't give. */
 function NotFound({ show }: { show: boolean }) {
   if (!show) return null;
-  return <span className="ml-1.5 rounded-full bg-warn-tint px-1.5 py-px text-[11px] font-medium text-warn">not found</span>;
+  return <span className="ml-1.5 rounded-full bg-warn-tint px-1.5 py-px text-[11px] font-medium text-warn">Not found – add it</span>;
 }
 
 const FIELDS: { key: "code" | "credits" | "sessions" | "semesterLabel" | "language" | "attendancePct" | "resitMax"; label: string; placeholder: string; decimal?: boolean }[] = [
@@ -300,6 +466,7 @@ function CourseDraftCard({
   sameAsAnother,
   onChange,
   onRemove,
+  onDone,
 }: {
   draft: CourseDraft;
   error?: string;
@@ -308,6 +475,7 @@ function CourseDraftCard({
   sameAsAnother: boolean;
   onChange: (patch: Partial<CourseDraft>) => void;
   onRemove: () => void;
+  onDone: () => void;
 }) {
   const id = useId();
   const missing = new Set(missingFields(d));
@@ -349,32 +517,7 @@ function CourseDraftCard({
         className={`${inputClass} text-base font-semibold`}
       />
 
-      {duplicate && (
-        <fieldset className="mt-3 rounded-[var(--radius-sm)] border border-warn-line bg-warn-tint p-3">
-          <legend className="sr-only">Already in your courses</legend>
-          <p className="flex items-start gap-2 text-sm font-medium text-warn">
-            <AlertTriangle aria-hidden="true" size={16} className="mt-0.5 shrink-0" />
-            “{duplicate.name}” is already in your courses.
-          </p>
-          <div className="mt-1 flex flex-wrap gap-x-5">
-            {[
-              { value: duplicate.id, label: "Update existing course" },
-              { value: "new", label: "Add as a new course" },
-            ].map((o) => (
-              <label key={o.value} className="flex min-h-11 items-center gap-2 text-sm text-ink">
-                <input
-                  type="radio"
-                  name={`${id}-target`}
-                  checked={d.target === o.value}
-                  onChange={() => onChange({ target: o.value })}
-                  className="h-5 w-5 accent-[var(--brand)]"
-                />
-                {o.label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      )}
+      {duplicate && <DuplicateChoice draft={d} duplicate={duplicate} onChange={onChange} />}
       {sameAsAnother && (
         <p className="mt-2 flex items-center gap-2 text-sm text-warn">
           <AlertTriangle aria-hidden="true" size={16} />
@@ -469,6 +612,9 @@ function CourseDraftCard({
           {error}
         </p>
       )}
+      <button type="button" onClick={onDone} disabled={!d.name.trim()} className={`${secondaryButton} mt-4`}>
+        Done
+      </button>
     </article>
   );
 }

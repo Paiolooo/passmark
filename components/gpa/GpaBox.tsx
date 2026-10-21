@@ -89,7 +89,7 @@ export function GpaBox({
           <button
             type="button"
             onClick={onImport}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-brand px-3.5 text-sm font-semibold text-on-brand hover:bg-brand-hover"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-sm font-semibold text-ink hover:bg-sunken"
           >
             <Upload aria-hidden="true" size={15} />
             Import transcript
@@ -143,6 +143,7 @@ export function GpaBox({
           <dd className="num text-lg font-semibold leading-tight text-ink sm:text-[1.625rem] sm:tracking-[-0.02em]">
             {figure(summary.semester, formatGrade)}
           </dd>
+          <dd className="text-[11px] leading-tight text-ink-3">so far</dd>
         </div>
         <ChevronRight aria-hidden="true" size={18} className="ml-auto shrink-0 self-center text-ink-3" />
       </dl>

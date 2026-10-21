@@ -10,6 +10,10 @@ import {
   suggestionLabel,
   toDraft,
   buildCourseImport,
+  needsAttention,
+  summaryMeta,
+  summaryRules,
+  titleCase,
   draftFromSyllabus,
   findDuplicate,
   missingFields,
@@ -248,7 +252,7 @@ describe("course drafts (batch import)", () => {
     expect(built.ok).toBe(true);
     if (!built.ok) return;
     expect(built.data).toMatchObject({
-      courseName: "FAKE COURSE",
+      courseName: "Fake Course",
       credits: 6,
       sessions: 30,
       info: {
@@ -285,7 +289,7 @@ describe("course drafts (batch import)", () => {
 
   it("explains a problem, naming the course", () => {
     const d = { ...draftFromSyllabus(syllabus(), "fake.pdf"), credits: "lots" };
-    expect(buildCourseImport(d)).toEqual({ ok: false, error: "FAKE COURSE: credits must be a number above 0." });
+    expect(buildCourseImport(d)).toEqual({ ok: false, error: "Fake Course: credits must be a number above 0." });
     expect(buildCourseImport({ ...d, credits: "6", name: "  " })).toEqual({ ok: false, error: "fake.pdf: type a course name." });
     expect(buildCourseImport({ ...d, credits: "6", attendancePct: "180" }).ok).toBe(false);
     expect(buildCourseImport({ ...d, credits: "6,5", attendancePct: "80%" }).ok).toBe(true);
@@ -302,3 +306,59 @@ describe("course drafts (batch import)", () => {
     expect(findDuplicate({ name: "", code: "" }, [{ id: "c", name: "", info: null }])).toBeNull();
   });
 });
+
+describe("review summary", () => {
+  it("Title Cases names the PDF shouts", () => {
+    expect(titleCase("MANAGEMENT CONTROL")).toBe("Management Control");
+    expect(titleCase("STRATEGIES FOR COMPETING IN INDUSTRIES AND MARKETS")).toBe("Strategies for Competing in Industries and Markets");
+    expect(titleCase("DATA ANALYSIS FOR ECONOMICS II")).toBe("Data Analysis for Economics II");
+    expect(titleCase("CONTABILIDAD DE LA EMPRESA")).toBe("Contabilidad de la Empresa");
+    expect(titleCase("Corporate Finance")).toBe("Corporate Finance");
+    expect(titleCase("HUMAN-CAPITAL MANAGEMENT")).toBe("Human-Capital Management");
+  });
+
+  const draft = (over: Partial<Syllabus> = {}) =>
+    draftFromSyllabus(
+      {
+        course: "MANAGEMENT CONTROL",
+        code: "MC-NBA.3.M.L",
+        sessions: 25,
+        credits: 5,
+        academicYear: "26/27",
+        semester: 1,
+        semesterLabel: "26/27 · 1st semester",
+        language: "English",
+        attendancePct: 80,
+        examSessions: [
+          { name: "Mid-term exam", session: "14" },
+          { name: "Final exam", session: "25" },
+        ],
+        resitMax: 8,
+        rows: [
+          { name: "Final Exam", weight: 60, minGrade: 4.5, split: null, count: null, bestOf: null },
+          { name: "Midterm", weight: 40, minGrade: null, split: null, count: null, bestOf: null },
+        ],
+        total: 100,
+        ok: true,
+        ...over,
+      },
+      "mc.pdf",
+    );
+
+  it("reads as two short lines", () => {
+    const d = draft();
+    expect(d.name).toBe("Management Control");
+    expect(summaryMeta(d)).toBe("5 ECTS · 25 sessions · 26/27 · 1st semester · English");
+    expect(summaryRules(d, 5)).toBe("Max absences: 5 of 25 · Re-sit max 8.0 · Midterm session 14 · Final session 25");
+  });
+
+  it("opens in edit mode only when essentials are missing or the weights are off", () => {
+    expect(needsAttention(draft())).toBe(false);
+    expect(needsAttention(draft({ examSessions: [], resitMax: null, code: null }))).toBe(false);
+    expect(needsAttention(draft({ credits: null }))).toBe(true);
+    expect(needsAttention(draft({ rows: [] }))).toBe(true);
+    expect(needsAttention({ ...draft(), rows: draft().rows.slice(0, 1) })).toBe(true);
+    expect(needsAttention({ ...draft(), name: " " })).toBe(true);
+  });
+});
+

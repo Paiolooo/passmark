@@ -137,7 +137,7 @@ test("importing a syllabus into a course updates the credits field shown", async
   const chooser = page.waitForEvent("filechooser");
   await card.getByRole("button", { name: "Import syllabus PDF" }).first().click();
   await (await chooser).setFiles(`syllabi-test/${PDF}`);
-  await card.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Update this course" }).click({ timeout: 50_000 });
   await expect(card).toContainText("5 ECTS");
   await expect(card.getByRole("region", { name: "Course details" })).toContainText("5 ECTS · from your syllabus");
 });
